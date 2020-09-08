@@ -37,11 +37,22 @@ typedef int(*MPI_IRECV)(void *buf, int count, MPI_Datatype datatype,
 typedef int(*MPI_WAIT)(MPI_Request *request, MPI_Status *status);
 typedef int(*MPI_WAITALL)(int count, MPI_Request array_of_requests[],
     MPI_Status *array_of_statuses);
+typedef int(*MPI_TEST)(MPI_Request *request, int *flag, MPI_Status *status);
 typedef int(*MPI_TESTALL)(int count, MPI_Request array_of_requests[],
     int *flag, MPI_Status array_of_statuses[]);
 typedef int(*MPI_ALLTOALL)(const void *sendbuf, int sendcount,
     MPI_Datatype sendtype, void *recvbuf, int recvcount,
     MPI_Datatype recvtype, MPI_Comm comm);
+typedef int(*MPI_BCAST)(void *buffer, int count, MPI_Datatype datatype,
+    int root, MPI_Comm comm);
+typedef int(*MPI_IBCAST)(void *buffer, int count, MPI_Datatype datatype,
+    int root, MPI_Comm comm, MPI_Request *request);
+typedef int(*MPI_REDUCE)(const void *sendbuf, void *recvbuf, int count,
+               MPI_Datatype datatype, MPI_Op op, int root,
+               MPI_Comm comm);
+typedef int(*MPI_IREDUCE)(const void *sendbuf, void *recvbuf, int count,
+                MPI_Datatype datatype, MPI_Op op, int root,
+                MPI_Comm comm, MPI_Request *request);
 
 enum TRACE_TYPE{
 	type_send,
@@ -50,8 +61,13 @@ enum TRACE_TYPE{
 	type_irecv,
         type_wait,
         type_waitall,
+        type_test,
         type_testall,
         type_alltoall,
+        type_bcast,
+        type_ibcast,
+        type_reduce,
+        type_ireduce,
 	type_COUNT
 }; 
 #define MAX_TRACE_NUM 100000
@@ -64,8 +80,13 @@ static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
 	"MPI_Irecv",
         "MPI_Wait",
         "MPI_Waitall",
+        "MPI_Test",
         "MPI_Testall",
         "MPI_Alltoall",
+        "MPI_Bcast",
+        "MPI_Ibcast",
+        "MPI_Reduce",
+        "MPI_Ireduce",
 };
 
 static void* TRACE_TYPE_FN[MAX_TRACE_FN];
@@ -83,6 +104,7 @@ typedef struct trace_log_struct{
    double return_ts;
    double end_ts;
    void* comm;
+   /*long private;*/
 } trace_log_t;
 
 
@@ -125,11 +147,16 @@ static inline void print_log(FILE* fp,trace_log_t* log);
 
 void display_info(){
     printf("MPITRACER\tInject MPI to Trace Traffic\n");
-    printf("MPITRACER\tLog Dir:%s, Max entries:%d\n",log_dir,max_trace_num);
+    printf("MPITRACER\tLog file:%s/%s_<rankid>.log, Max entries:%d\n",log_dir,log_prefix,max_trace_num);
     if(timer_fn==gettimeofday_timer)
-        printf("MPITRACER\tUSE Timer: gettimeofday\n");
+        printf("MPITRACER\tUse Timer: gettimeofday\n");
     if(timer_fn==tsc_timer)
-        printf("MPITRACER\tUSE Timer: TSC with Freq:%lfGHZ\n",GHZ);
+        printf("MPITRACER\tUse Timer: TSC with Freq:%lfGHZ\n",GHZ);
+    if(writer_enable){
+        printf("MPITRACER\tUse Realtime Writer thread to log\n");
+    }else{
+        printf("MPITRACER\tSave Logs at the end of MPI_Finalize, DO NOT EXIT EARLY\n");
+    }
 }
 
 void* log_writer_thread(){
@@ -137,20 +164,25 @@ void* log_writer_thread(){
     FILE* fp;
     int writer_index=0;
     int offset=0;
+    int n=0;
     while(tracer_rank<0&&!writer_exit_flag){
-        sleep(1);
+        usleep(1);
     }
     sprintf(log_file,"%s/%s_%d.log",log_dir,log_prefix,tracer_rank);
     fp=fopen(log_file,"w");
     fprintf( fp, "%9s %25s %11s %9s %10s %8s %7s %7s %7s %9s %8s %8s %7s %9s %8s %8s %7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
-    while(!writer_exit_flag){
+    while(1){
         offset = trace_index%max_trace_num;
         if(writer_index==offset){
-           sleep(1);
-           continue;
+            if(writer_exit_flag){
+                break;
+            }
+            usleep(1000000);
+            continue;
         }
         print_log(fp,&probe_log[writer_index]);
         writer_index=(writer_index+1)%max_trace_num;
+        n++;
     }
     fclose(fp);
 }
@@ -236,6 +268,7 @@ inline void print_log(FILE* fp,trace_log_t* log){
     double sgbps=0.0;
     double rgbps=0.0;
     double elapse=0.0;
+    char debug_info[16]="";
     switch(log->type){
         case type_send:
         case type_isend:
@@ -246,6 +279,14 @@ inline void print_log(FILE* fp,trace_log_t* log){
         case type_irecv:
             dst=tracer_rank;
             src=log->peer;
+            break;
+        case type_bcast:
+        case type_ibcast:
+            src=log->peer;
+            break;
+        case type_reduce:
+        case type_ireduce:
+            dst=log->peer;
             break;
         case -1:
             return;
@@ -267,7 +308,7 @@ inline void print_log(FILE* fp,trace_log_t* log){
     }else{
         rgbps=0.0;
     }
-    fprintf( fp, "%9d %25s %11.6lf %9.6lf %10.6lf %8u %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf\n", log->id,TRACE_TYPE_NAME[log->type],(log->start_ts-rank_start_ts) ,(log->return_ts-log->start_ts),elapse,log->comm,log->tag,src,dst,log->scount,log->sdatatype_size,slen,sgbps,log->rcount,log->rdatatype_size,rlen,rgbps);
+    fprintf( fp, "%9d %25s %11.6lf %9.6lf %10.6lf %8u %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf %s\n", log->id,TRACE_TYPE_NAME[log->type],(log->start_ts-rank_start_ts) ,(log->return_ts-log->start_ts),elapse,log->comm,log->tag,src,dst,log->scount,log->sdatatype_size,slen,sgbps,log->rcount,log->rdatatype_size,rlen,rgbps,debug_info);
 }
 
 int MPI_Finalize(){
@@ -446,6 +487,8 @@ int MPI_Wait(MPI_Request *request, MPI_Status *status){
     if(r){
         probe_log[r->index%max_trace_num].end_ts=end;
         recycle_request_node(r,&request_pool);
+    }else{
+       //printf("Unknown request:%p\n",ptr);
     } 
     probe_log[trace_index%max_trace_num].comm=0;
     probe_log[trace_index%max_trace_num].end_ts=end;
@@ -496,6 +539,44 @@ int MPI_Waitall(int count, MPI_Request array_of_requests[],
     probe_log[trace_index%max_trace_num].tag=-1;
     trace_index++;
     return ret;
+}
+
+int MPI_Test(MPI_Request *request, int *flag, MPI_Status *status){
+    int ret;
+    int i;
+    int type=type_test;
+    struct request_node* r;
+    double start,end;
+    void* ptr;
+    MPI_TEST fn=TRACE_TYPE_FN[type];
+    ret=fn(request,flag,status);
+    if(*flag==false){
+        return ret;
+    }
+    probe_log[trace_index%max_trace_num].type=type;
+    probe_log[trace_index%max_trace_num].start_ts=timer_fn();
+    end=timer_fn();
+    ptr=(void*)((MPI_Request*)request); 
+    r=hash_find_request(ptr,htable);
+    if(r){
+        probe_log[r->index%max_trace_num].end_ts=end;
+        recycle_request_node(r,&request_pool);
+    }else{
+       //printf("Unknown request:%p\n",ptr);
+    } 
+    probe_log[trace_index%max_trace_num].comm=0;
+    probe_log[trace_index%max_trace_num].end_ts=end;
+    probe_log[trace_index%max_trace_num].return_ts=end;
+    probe_log[trace_index%max_trace_num].id=trace_index;
+    probe_log[trace_index%max_trace_num].peer=-1;
+    probe_log[trace_index%max_trace_num].scount=0;
+    probe_log[trace_index%max_trace_num].sdatatype_size=0;
+    probe_log[trace_index%max_trace_num].rcount=0;
+    probe_log[trace_index%max_trace_num].rdatatype_size=0;
+    probe_log[trace_index%max_trace_num].tag=-1;
+    trace_index++;
+    return ret;
+
 }
 
 int MPI_Testall(int count, MPI_Request array_of_requests[],
@@ -559,6 +640,150 @@ int MPI_Alltoall(const void *sendbuf, int sendcount,
     probe_log[trace_index%max_trace_num].rcount=recvcount;
     MPI_Type_size(recvtype,&probe_log[trace_index%max_trace_num].rdatatype_size);
     probe_log[trace_index%max_trace_num].tag=-1;
+    trace_index++;
+    return ret;
+}
+
+int MPI_Bcast(void *buffer, int count, MPI_Datatype datatype,
+    int root, MPI_Comm comm){
+    int ret;
+    int type=type_bcast;
+    double end;
+    MPI_BCAST fn=TRACE_TYPE_FN[type];
+    probe_log[trace_index%max_trace_num].type=type;
+    probe_log[trace_index%max_trace_num].start_ts=timer_fn();
+    ret=fn(buffer,count,datatype,root,comm);
+    end=timer_fn();
+    probe_log[trace_index%max_trace_num].comm=comm;
+    probe_log[trace_index%max_trace_num].end_ts=end;
+    probe_log[trace_index%max_trace_num].return_ts=end;
+    probe_log[trace_index%max_trace_num].id=trace_index;
+    probe_log[trace_index%max_trace_num].peer=root;
+    if(root==tracer_rank){
+        probe_log[trace_index%max_trace_num].scount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].sdatatype_size);
+        probe_log[trace_index%max_trace_num].rcount=0;
+        probe_log[trace_index%max_trace_num].rdatatype_size=0;
+    }else{
+        probe_log[trace_index%max_trace_num].rcount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].rdatatype_size);
+        probe_log[trace_index%max_trace_num].scount=0;
+        probe_log[trace_index%max_trace_num].sdatatype_size=0;
+    }
+    probe_log[trace_index%max_trace_num].tag=-1;
+    trace_index++;
+    return ret;
+}
+
+int MPI_Ibcast(void *buffer, int count, MPI_Datatype datatype,
+    int root, MPI_Comm comm, MPI_Request *request){
+    int ret;
+    int type=type_ibcast;
+    double end;
+    struct request_node* r;
+    MPI_IBCAST fn=TRACE_TYPE_FN[type];
+    probe_log[trace_index%max_trace_num].type=type;
+    probe_log[trace_index%max_trace_num].start_ts=timer_fn();
+    ret=fn(buffer,count,datatype,root,comm,request);
+    end=timer_fn();
+    probe_log[trace_index%max_trace_num].comm=comm;
+    probe_log[trace_index%max_trace_num].return_ts=end;
+    probe_log[trace_index%max_trace_num].end_ts=end+999.0;
+    probe_log[trace_index%max_trace_num].id=trace_index;
+    probe_log[trace_index%max_trace_num].peer=root;
+    if(root==tracer_rank){
+        probe_log[trace_index%max_trace_num].scount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].sdatatype_size);
+        probe_log[trace_index%max_trace_num].rcount=0;
+        probe_log[trace_index%max_trace_num].rdatatype_size=0;
+    }else{
+        probe_log[trace_index%max_trace_num].rcount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].rdatatype_size);
+        probe_log[trace_index%max_trace_num].scount=0;
+        probe_log[trace_index%max_trace_num].sdatatype_size=0;
+    }
+    probe_log[trace_index%max_trace_num].tag=-1;
+    r=pool_pop(&request_pool);
+    if(r){
+        r->ptr=(void*)request;
+        r->index=trace_index;
+        hash_add_request(r,htable);
+    }else{
+        //printf("not enough\n");
+    }
+    trace_index++;
+    return ret;
+}
+
+int MPI_Reduce(const void *sendbuf, void *recvbuf, int count,
+               MPI_Datatype datatype, MPI_Op op, int root,
+               MPI_Comm comm){
+    int ret;
+    int type=type_reduce;
+    double end;
+    MPI_REDUCE fn=TRACE_TYPE_FN[type];
+    probe_log[trace_index%max_trace_num].type=type;
+    probe_log[trace_index%max_trace_num].start_ts=timer_fn();
+    ret=fn(sendbuf,recvbuf,count,datatype,op,root,comm);
+    end=timer_fn();
+    probe_log[trace_index%max_trace_num].comm=comm;
+    probe_log[trace_index%max_trace_num].end_ts=end;
+    probe_log[trace_index%max_trace_num].return_ts=end;
+    probe_log[trace_index%max_trace_num].id=trace_index;
+    probe_log[trace_index%max_trace_num].peer=root;
+    if(root==tracer_rank){
+        probe_log[trace_index%max_trace_num].rcount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].rdatatype_size);
+        probe_log[trace_index%max_trace_num].scount=0;
+        probe_log[trace_index%max_trace_num].sdatatype_size=0;
+    }else{
+        probe_log[trace_index%max_trace_num].scount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].sdatatype_size);
+        probe_log[trace_index%max_trace_num].rcount=0;
+        probe_log[trace_index%max_trace_num].rdatatype_size=0;
+    }
+    probe_log[trace_index%max_trace_num].tag=-1;
+    trace_index++;
+    return ret;
+}
+
+int MPI_Ireduce(const void *sendbuf, void *recvbuf, int count,
+                MPI_Datatype datatype, MPI_Op op, int root,
+                MPI_Comm comm, MPI_Request *request){
+    int ret;
+    int type=type_ireduce;
+    struct request_node* r;
+    double end;
+    MPI_IREDUCE fn=TRACE_TYPE_FN[type];
+    probe_log[trace_index%max_trace_num].type=type;
+    probe_log[trace_index%max_trace_num].start_ts=timer_fn();
+    ret=fn(sendbuf,recvbuf,count,datatype,op,root,comm,request);
+    end=timer_fn();
+    probe_log[trace_index%max_trace_num].comm=comm;
+    probe_log[trace_index%max_trace_num].return_ts=end;
+    probe_log[trace_index%max_trace_num].end_ts=end+999.0;
+    probe_log[trace_index%max_trace_num].id=trace_index;
+    probe_log[trace_index%max_trace_num].peer=root;
+    if(root==tracer_rank){
+        probe_log[trace_index%max_trace_num].rcount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].rdatatype_size);
+        probe_log[trace_index%max_trace_num].scount=0;
+        probe_log[trace_index%max_trace_num].sdatatype_size=0;
+    }else{
+        probe_log[trace_index%max_trace_num].scount=count;
+        MPI_Type_size(datatype,&probe_log[trace_index%max_trace_num].sdatatype_size);
+        probe_log[trace_index%max_trace_num].rcount=0;
+        probe_log[trace_index%max_trace_num].rdatatype_size=0;
+    }
+    probe_log[trace_index%max_trace_num].tag=-1;
+    r=pool_pop(&request_pool);
+    if(r){
+        r->ptr=(void*)request;
+        r->index=trace_index;
+        hash_add_request(r,htable);
+    }else{
+        //printf("not enough\n");
+    }
     trace_index++;
     return ret;
 }

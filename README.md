@@ -8,7 +8,7 @@ Use -x LD_PRELOAD=/path/to/mpitracer.so during mpirun
 
 Example:
 
-mpirun  --hostfile <hostfile> -np 64 -npernode 32  -x LD_PRELOAD=/path/to/mpitracer.so /path/to/MPIApp
+mpirun  --hostfile myhosts -np 64 -npernode 32  -x LD_PRELOAD=/path/to/mpitracer.so /path/to/MPIApp
 
 
 
@@ -48,7 +48,7 @@ MPI tracer use environment variables to pass parameters. The available options a
 
 Example:
 
-mpirun  --hostfile <hostfile> -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITRACER_LOG_SIZE=200000 -x MPITRACER_TIMER=GETTIMEOFDAY  -x LD_PRELOAD=/path/to/mpitracer.so /path/to/MPIApp
+mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITRACER_LOG_SIZE=200000 -x MPITRACER_TIMER=GETTIMEOFDAY  -x LD_PRELOAD=/path/to/mpitracer.so /path/to/MPIApp
 
 
 
@@ -88,21 +88,18 @@ mpirun  --hostfile <hostfile> -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MP
 
 The available MPI APIs to monitor now
 
-1. MPI_Send
-
-2. MPI_Recv
-
-3. MPI_Isend
-
-4. MPI_Irecv
-
-5. MPI_Wait
-
-6. MPI_Waitall
-
-7. MPI_Testall
-
-8. MPI_Alltoall
+MPI_Send
+MPI_Recv
+MPI_Isend
+MPI_Irecv
+MPI_Wait
+MPI_Waitall
+MPI_Test
+MPI_Testall
+MPI_Bcast
+MPI_Ibcast
+MPI_Reduce
+MPI_Ireduce
 
 
 
