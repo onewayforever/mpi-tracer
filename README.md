@@ -4,7 +4,7 @@ The realtime monitor for tracing the MPI behavior
 
 ## Usage
 Add mpitracer.so as the LD_PRELOAD library 
-Use -x LD_PRLOAD=/path/to/mpitracer.so during mpirun
+Use -x LD_PRELOAD=/path/to/mpitracer.so during mpirun
 
 Example:
 
@@ -14,7 +14,7 @@ mpirun  --hostfile <hostfile> -np 64 -npernode 32  -x LD_PRELOAD=/path/to/mpitra
 
 ## Parameters 
 
-MPI tracer use environment variables to pass parameters. The available options are listed below
+MPI tracer use environment variables to pass parameters. The available options are listed below.
 
 * MPITRACER_LOG_SIZE
 
@@ -65,14 +65,14 @@ mpirun  --hostfile <hostfile> -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MP
 
 | Column    | Descrpition                                                  |
 | --------- | ------------------------------------------------------------ |
-| MPI_TYPE  | the MPI_<> APIs to hook and log, available APIs are listed in the next section |
+| MPI_TYPE  | the MPI_xxx functions to hook and log, available functions are listed in the next section |
 | TimeStamp | seconds since MPI_Init is called                             |
-| Call      | the running time of the called API                           |
-| Elapse    | if MPI API is synchronized, eg MPI_Send, it is equal to Call<br />if MPI API is asynchronous, eg MPI_Isend, it is the time between API called and the asynchronized request is checked positive by MPI_Test or MPI_Wait |
-| Comm      | the Commnunicator of the API                                 |
-| Tag       | the tag of the API                                           |
-| SRC       | the source rank of the API, display -1 if NA                 |
-| DST       | the destination rank of the API, display -1 if NA            |
+| Call      | the running time of the called function                      |
+| Elapse    | if the function is synchronous, eg MPI_Send, it is equal to Call<br />if the function is asynchronous, eg MPI_Isend, it is the time between the asychronous function being called and its asynchronous request being checked positive by MPI_Test or MPI_Wait |
+| Comm      | the Commnunicator of the function                                 |
+| Tag       | the tag of the function                                           |
+| SRC       | the source rank of the function, display -1 if NA                 |
+| DST       | the destination rank of the function, display -1 if NA            |
 | SCount    | the count of buffers for sending                             |
 | SBuf_B    | the size of a single buffer for sending, in Bytes            |
 | SLen_B    | the total size of sending buffer, SLen_B = SCount * SCount, in Bytes |
