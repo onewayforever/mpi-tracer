@@ -1,5 +1,5 @@
 # MPI TRACER
-The realtime monitor for tracing the MPI behavior 
+The realtime monitor for tracing the MPI(Message Passing Interface) program behavior. 
 
 
 ## Usage
@@ -46,6 +46,10 @@ MPI tracer use environment variables to pass parameters. The available options a
 
   MPI trace will create a writer thread to write the logs to the file on each rank process, you can set MPITRACER_DELAY_WRITER=1 to disable writer thread and don't  flush the logs to file during the application runtime util MPI_Finalize stage
 
+* MPITRACER_THRESHOLD
+
+  MPI trace will log only the MPI behavior with message size larger than MPITRACER_THRESHOLD, default: 0 (log everything)
+
 Example:
 
 mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITRACER_LOG_SIZE=200000 -x MPITRACER_TIMER=GETTIMEOFDAY  -x LD_PRELOAD=/path/to/mpitracer.so /path/to/MPIApp
@@ -89,17 +93,40 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 The available MPI APIs to monitor now
 
 MPI_Send
+
 MPI_Recv
+
 MPI_Isend
+
 MPI_Irecv
+
 MPI_Wait
+
 MPI_Waitall
+
 MPI_Test
+
 MPI_Testall
+
 MPI_Bcast
+
 MPI_Ibcast
+
 MPI_Reduce
+
 MPI_Ireduce
+
+MPI_Allreduce
+
+MPI_Iallreduce
+
+MPI_Alltoall
+
+MPI_Ialltoall
+
+MPI_Barrier
+
+MPI_Ibarrier
 
 
 
