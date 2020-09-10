@@ -1,5 +1,5 @@
 # MPI TRACER
-The realtime monitor for tracing the MPI(Message Passing Interface) program behavior. 
+The realtime monitor for tracing the MPI(Message Passing Interface) program behavior, including  MPI activities and communication performance.
 
 
 ## Usage
@@ -61,9 +61,12 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 
 ## Log format
 ```
-       ID                  MPI_TYPE   TimeStamp      Call     Elapse     Comm     Tag     SRC     DST    SCount   SBuf_B   SLen_B SBW_Gbps    RCount   RBuf_B   RLen_B RBW_Gbps
-        0                  MPI_Recv    0.411055  0.000021   0.000021  6477824    9001       1       0         0        0        0   0.000         1        4        4   0.002
-        1                  MPI_Recv    0.411079  0.000002   0.000002  6477824    9001       2       0         0        0        0   0.000         1        4        4   0.015
+       ID                  MPI_TYPE   TimeStamp      Call     Elapse       Comm     Tag     SRC     DST    SCount   SBuf_B   SLen_B SBW_Gbps    RCount   RBuf_B   RLen_B RBW_Gbps
+    51925                 MPI_Bcast   53.490958  0.000004   0.000004  0x2bbf780      -1       0      -1       260        8     2080   4.362         0        0        0   0.000
+    51926                  MPI_Send   53.490996  0.000098   0.000098  0x2bbe3d0    2329       0       1         1   526344   526344  42.971         0        0        0   0.000
+    51927                  MPI_Send   53.491095  0.000003   0.000003  0x2bbe3d0    2329       0       1         1        0        0   0.000         0        0        0   0.000
+    51928                  MPI_Send   53.491665  0.000012   0.000012  0x2bbf780    4001       0       1         1     2048     2048   1.374         0        0        0   0.000
+    51929                  MPI_Recv   53.498571  0.000083   0.000083  0x2bbe3d0    2330       1       0         0        0        0   0.000         1   526344   526344  50.750
 ```
 
 
@@ -129,6 +132,9 @@ MPI_Barrier
 MPI_Ibarrier
 
 
+## Notes
+
+* Tested on OSU Micro-Benchmarks 5.5 and HPL 2.2
 
 
 
