@@ -1,5 +1,24 @@
 #ifndef UTIL_H
 #define UTIL_H
+
+#include <stdio.h>
+#include <string.h>
+
+extern int tracer_rank;
+extern int MPI_program_warning_enable;
+
+static int inline __split(char dst[][64], char* str, const char* spl)
+{
+    int n = 0;
+    char *result = NULL;
+    result = strtok(str, spl);
+    while( result != NULL )
+    {
+        strcpy(dst[n++], result);
+        result = strtok(NULL, spl);
+    }
+    return n;
+}
 struct list_head {
     struct list_head *next, *prev;
 };
@@ -13,7 +32,11 @@ struct list_head {
 
 #define list_for_each(pos, head) for(pos = (head)->next;pos != (head); pos = pos->next)
 
+#ifdef DEBUG
+#define MAX_HASH 20
+#else
 #define MAX_HASH 1024
+#endif
 
 static inline void INIT_LIST_HEAD(struct list_head *list){
     list->next = list;
@@ -93,6 +116,26 @@ void init_htable(struct htable_node* table){
     }
 }
 
+void view_htable(struct htable_node* table){
+    int i;
+    struct list_head* list;
+    struct list_head* head;
+    struct request_node* obj;
+    int count=0;
+    if(tracer_rank>0) return;
+    for(i=0;i<MAX_HASH;i++){
+      count=0;
+      head=&(table[i].head);
+      printf("%d\t",i);
+      list_for_each(list,head){
+          count++;
+          obj=list_entry(list,struct request_node,node);
+          printf("%p_%d\t",obj->ptr,obj->index);
+      }
+      printf("%d\n",count);
+    }
+}
+
 static inline int cal_hash(void* ptr){
     return (long)ptr%MAX_HASH;
 }
@@ -100,7 +143,19 @@ static inline int cal_hash(void* ptr){
 void hash_add_request(struct request_node* obj,struct htable_node* table){
     int idx=cal_hash(obj->ptr);
     struct list_head* head=&(table[idx].head);
+    struct list_head* list;
+    struct request_node* item;
+    list_for_each(list,head){
+         item=list_entry(list,struct request_node,node);
+         if(obj->ptr==item->ptr){
+             if(MPI_program_warning_enable) printf("MPITRACER:\tFound the program reused the request before call MPI_Test/MPI_Wait, set MPITRACER_FOUND_ASYNC_BUG_WARNING=0 to disable this Warning\n");
+             return; 
+         }
+    }
     list_add_tail(&(obj->node),head);
+    #ifdef DEBUG
+    if(tracer_rank==0) printf("push %p at %d\n",obj->ptr,idx);
+    #endif
 }
 
 struct request_node* hash_find_request(void* ptr,struct htable_node* table){
@@ -108,12 +163,24 @@ struct request_node* hash_find_request(void* ptr,struct htable_node* table){
     struct list_head* head=&(table[idx].head);
     struct list_head* list;
     struct request_node* obj;
+    #ifdef DEBUG
+    int count=0;
+    #endif
     list_for_each(list,head){
+         #ifdef DEBUG
+         count++;
+         #endif
          obj=list_entry(list,struct request_node,node);
          if(obj->ptr==ptr){
+             #ifdef DEBUG
+             if(tracer_rank==0) printf("catch %p - %d at %d\n",ptr,count,idx);
+             #endif
              return obj;
          }
     }
+    #ifdef DEBUG
+    if(tracer_rank==0) printf("miss %p - %d at %d\n",ptr,count,idx);
+    #endif
     return NULL;
 }
 

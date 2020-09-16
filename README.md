@@ -1,6 +1,18 @@
 # MPI TRACER
 The realtime monitor for tracing the MPI(Message Passing Interface) program behavior, including  MPI activities and communication performance.
 
+NO NEED to recompile the target MPI application, so it can be used for  3rd party application tracing
+
+
+
+# Install 
+
+step1: $ make 
+
+step2: Copy the mpitracer.so to the same path at all hosts
+
+
+
 
 ## Usage
 Add mpitracer.so as the LD_PRELOAD library 
@@ -49,6 +61,18 @@ MPI tracer use environment variables to pass parameters. The available options a
 * MPITRACER_THRESHOLD
 
   MPI trace will log only the MPI behavior with message size larger than MPITRACER_THRESHOLD, default: 0 (log everything)
+
+* MPITRACER_DISABLE_REDUCER
+
+   MPI trace will summary all traces caught in each host and save to a single host, set to 0 to disable it, default: 1 (enable)
+
+* MPITRACER_FOUND_ASYNC_BUG_WARNING
+
+   MPI trace can be used to find program issues in using  non-blocking functions,  eg. MPI_Request is not used in pairs of MPI_Ixxxx and MPI_Wait/Test, set to 0 to disable it, default: 1 (enable)
+
+* MPITRACER_IGNORE
+
+   MPI trace will ignore the designated functions , separate by comma, eg. MPITRACER_IGNORE=MPI_Bcast,MPI_Barrier
 
 Example:
 
@@ -134,7 +158,10 @@ MPI_Ibarrier
 
 ## Notes
 
+* Linux Only
+* Works with openmpi or Intelmpi
 * Tested on OSU Micro-Benchmarks 5.5 and HPL 2.2
+* Tested on mpiGraph
 
 
 
