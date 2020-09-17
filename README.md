@@ -8,10 +8,15 @@ NO NEED to recompile the target MPI application, so it can be used for  3rd part
 ## What can MPI-TRACER do?
 
 TotalBytes send among hosts 
+
 ![mpiGraph_totalbytes](images/mpiGraph_host_totalbytes.png)  
+
 Max bandwidth among ranks
+
 ![mpiGraph_maxbw](images/mpiGraph_maxbw.png) 
+
 Mean bandwidth among ranks
+
 ![mpiGraph_bwmean](images/mpiGraph_bwmean.png)
 
 
