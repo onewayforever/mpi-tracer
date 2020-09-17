@@ -1,11 +1,21 @@
-# MPI TRACER
+# MPI-TRACER
 The realtime monitor for tracing the MPI(Message Passing Interface) program behavior, including  MPI activities and communication performance.
 
 NO NEED to recompile the target MPI application, so it can be used for  3rd party application tracing
 
 
 
-# Install 
+## What can MPI-TRACER do?
+
+TotalBytes send among hosts 
+![mpiGraph_totalbytes](images/mpiGraph_host_totalbytes.png)  
+Max bandwidth among ranks
+![mpiGraph_maxbw](images/mpiGraph_maxbw.png) 
+Mean bandwidth among ranks
+![mpiGraph_bwmean](images/mpiGraph_bwmean.png)
+
+
+##  Install 
 
 step1: $ make 
 
@@ -15,6 +25,8 @@ step2: Copy the mpitracer.so to the same path at all hosts
 
 
 ## Usage
+1. Run 
+
 Add mpitracer.so as the LD_PRELOAD library 
 Use -x LD_PRELOAD=/path/to/mpitracer.so during mpirun
 
@@ -22,7 +34,15 @@ Example:
 
 mpirun  --hostfile myhosts -np 64 -npernode 32  -x LD_PRELOAD=/path/to/mpitracer.so /path/to/MPIApp
 
+2. Get results 
 
+* Find trace log of each process in /dev/shm/mpi_trace_\<rankid\>.log
+
+* Find summary of the task in /var/log/mpi_trace_task_\<start_timestamp\>.log on host of rank 0（Only log pt2pt traffics）
+
+3. Analyze the results
+
+   View the python scripts in scripts/ as a reference
 
 ## Parameters 
 
@@ -80,10 +100,10 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 
 
 
+## Log Format
 
 
-
-## Log format
+### Trace Log format
 ```
        ID                  MPI_TYPE   TimeStamp      Call     Elapse       Comm     Tag     SRC     DST    SCount   SBuf_B   SLen_B SBW_Gbps    RCount   RBuf_B   RLen_B RBW_Gbps
     51925                 MPI_Bcast   53.490958  0.000004   0.000004  0x2bbf780      -1       0      -1       260        8     2080   4.362         0        0        0   0.000
@@ -100,24 +120,60 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 | TimeStamp | seconds since MPI_Init is called                             |
 | Call      | the running time of the called function                      |
 | Elapse    | if the function is synchronous, eg MPI_Send, it is equal to Call<br />if the function is asynchronous, eg MPI_Isend, it is the time between the asychronous function being called and its asynchronous request being checked positive by MPI_Test or MPI_Wait |
-| Comm      | the Commnunicator of the function                                 |
-| Tag       | the tag of the function                                           |
-| SRC       | the source rank of the function, display -1 if NA                 |
-| DST       | the destination rank of the function, display -1 if NA            |
+| Comm      | the Commnunicator of the function                            |
+| Tag       | the tag of the function                                      |
+| SRC       | the source rank of the function, display -1 if NA            |
+| DST       | the destination rank of the function, display -1 if NA       |
 | SCount    | the count of buffers for sending                             |
-| SBuf_B    | the size of a single buffer for sending, in Bytes            |
-| SLen_B    | the total size of sending buffer, SLen_B = SCount * SCount, in Bytes |
+| SBuf_B    | the size of a single buffer for sending, in bytes            |
+| SLen_B    | the total size of sending buffer, SLen_B = SCount * SCount, in bytes |
 | SBW_Gbps  | the bandwidth of sending process SBW_Gbps = SLen_B/Elapse, formatted to Gbps |
 | RCount    | the count of buffers for receiving                           |
 | RBuf_B    | the size of a single buffer for receiving, in Bytes          |
-| RLen_B    | the total size of receiving buffer, RLen_B = RCount * RBuf_B, in Bytes |
+| RLen_B    | the total size of receiving buffer, RLen_B = RCount * RBuf_B, in bytes |
 | RBW_Gbps  | the bandwidth of receiving process RBW_Gbps = RLen_B/Elapse, formatted to Gbps |
+
+
+
+### Task Summary Log format
+
+
+
+Only support pt2pt traffic now
+
+```
+          SHost            SRC            DHost            DST       Start          Elapse           TotalCount              TotalBytes         Max_msg         Min_msg         Avg_msg         Max_bw  Min_bw  Avg_bw Bw_mean
+        ihostn01              1         ihostn00              0    4.930473      518.642593                42804             24046669008        29360128               4          561785         50.433   0.000   0.371  10.701
+        ihostn02              2         ihostn00              0    4.930495      518.656857                13080              1367319360        29245440               4          104535         51.540   0.000   0.021   6.502
+        ihostn03              3         ihostn00              0   14.120866      490.132643                 2426              1755566080        29360128            2048          723646         41.648   0.003   0.029   9.031
+```
+
+| Column     | Descrpition                                                  |
+| ---------- | ------------------------------------------------------------ |
+| SHost      | the hostname where source rank located at                    |
+| SRC        | the source rank                                              |
+| DHost      | the hostname where destination rank located at               |
+| DST        | the destination rank                                         |
+| Start      | the start time(s)                                            |
+| Elapse     | the total time of the communication last between SRC and DST |
+| TotalCount | the total messages have been sent                            |
+| TotalBytes | the total bytes have been sent, in bytes                     |
+| Max_msg    | the max size of all messages, in bytes                       |
+| Min_msg    | the min size of all messages, in bytes                       |
+| Avg_msg    | the average size of all messages, in bytes                   |
+| Max_bw     | the max bandwidth of all traffics between SRC and DST, formatted to Gbps |
+| Min_bw     | the min bandwidth of all traffics between SRC and DST, formatted to Gbps |
+| Avg_bw     | the average bandwidth of all traffics between SRC and DST, Avg_bw=TotalBytes/Elapse, formatted to Gbps |
+| Bw_mean    | the average bandwidth of all traffics between SRC and DST, Bw_mean=Sum(bw)/TotalCount, formatted to Gbps |
+
+
+
 
 
 
 ## MPI Hooks
 
-The available MPI APIs to monitor now
+The available MPI functions to trace now
 
 MPI_Send
 
@@ -162,6 +218,7 @@ MPI_Ibarrier
 * Works with openmpi or Intelmpi
 * Tested on OSU Micro-Benchmarks 5.5 and HPL 2.2
 * Tested on mpiGraph
+  * there is a bug in mpiGraph, see https://github.com/LLNL/mpiGraph/pull/2/files to fix and run
 
 
 

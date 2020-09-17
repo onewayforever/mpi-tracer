@@ -6,6 +6,7 @@
 
 extern int tracer_rank;
 extern int MPI_program_warning_enable;
+extern int issue_found_flag;
 
 static int inline __split(char dst[][64], char* str, const char* spl)
 {
@@ -148,7 +149,10 @@ void hash_add_request(struct request_node* obj,struct htable_node* table){
     list_for_each(list,head){
          item=list_entry(list,struct request_node,node);
          if(obj->ptr==item->ptr){
-             if(MPI_program_warning_enable) printf("MPITRACER:\tFound the program reused the request before call MPI_Test/MPI_Wait, set MPITRACER_FOUND_ASYNC_BUG_WARNING=0 to disable this Warning\n");
+             if(MPI_program_warning_enable) {
+                 printf("MPITRACER:\tFound the program reused the request before call MPI_Test/MPI_Wait, set MPITRACER_FOUND_ASYNC_BUG_WARNING=0 to disable this Warning\n");
+                 issue_found_flag=1;
+             }
              return; 
          }
     }
