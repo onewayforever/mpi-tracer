@@ -12,12 +12,29 @@ def traffic_matrix_by_rank(df,option):
     return mat
 
 def traffic_matrix_by_host(df,option):
-    total_rank=max(df.SHost.max(),df.SRC.max())+1
-    mat=np.zeros([total_rank,total_rank])
-    for index, row in df.iterrows():
-        mat[row["SRC"],row["DST"]]=row[option]
-    return mat
+    hosts=list(set(df.SHost)|set(df.DHost))
+    total_hosts=len(hosts)
+    mat=np.zeros([total_hosts,total_hosts])
+    mat_start=np.ones([total_hosts,total_hosts])*99999
+    mat_end=np.zeros([total_hosts,total_hosts])
 
+
+    for index, row in df.iterrows():
+        #print(row["SRC"], row["DST"])
+        #mat[row["SRC"],row["DST"]]=row['Bw_mean']
+        #mat[row["SRC"],row["DST"]]=row['TotalBytes']
+        #mat[row["SRC"],row["DST"]]=row[option]
+        i=hosts.index(row["SHost"])
+        j=hosts.index(row["DHost"])
+        mat[i,j]+=row[option]
+        if row['Start'] < mat_start[i,j]:
+            mat_start[i,j]=row['Start'] 
+        if (row['Start']+row['Elapse']) > mat_end[i,j]:
+            mat_end[i,j]=row['Start']+row['Elapse'] 
+    if option=='TotalBytes':
+        return mat
+    if option=='Avg_bw':
+        return mat/(mat_end-mat_start)*8*1e-9
 
 
 if __name__=="__main__":
@@ -51,6 +68,6 @@ if __name__=="__main__":
     filepath,tempfilename = os.path.split(log);
     shotname,extension = os.path.splitext(tempfilename);
     plt.matshow(mat)
-    plt.savefig(shotname+"_{}.png".format(option))
-    print('save to ' + './'+shotname+"_{}.png".format(option))
+    plt.savefig(shotname+"_{}_{}.png".format(by,option))
+    print('save to ' + './'+shotname+"_{}_{}.png".format(by,option))
 
