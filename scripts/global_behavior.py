@@ -4,6 +4,14 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 
+regular={
+    'TotalBytes':100000000,
+    'Bw_mean':0.5,
+    'Max_mean':0.5,
+    'Min_mean':0.5,
+    'Avg_mean':0.5,
+}
+
 def traffic_matrix_by_rank(df,option):
     total_rank=max(df.SRC.max(),df.SRC.max())+1
     mat=np.zeros([total_rank,total_rank])
@@ -13,6 +21,7 @@ def traffic_matrix_by_rank(df,option):
 
 def traffic_matrix_by_host(df,option):
     hosts=list(set(df.SHost)|set(df.DHost))
+    hosts=list(sorted(hosts))
     total_hosts=len(hosts)
     mat=np.zeros([total_hosts,total_hosts])
     mat_start=np.ones([total_hosts,total_hosts])*99999
@@ -67,6 +76,8 @@ if __name__=="__main__":
         mat=traffic_matrix_by_host(df,option)
     filepath,tempfilename = os.path.split(log);
     shotname,extension = os.path.splitext(tempfilename);
+    mat=np.log(mat)
+    #mat=np.log(mat-regular[option])
     plt.matshow(mat)
     plt.savefig(shotname+"_{}_{}.png".format(by,option))
     print('save to ' + './'+shotname+"_{}_{}.png".format(by,option))

@@ -40,9 +40,6 @@ static struct list_head request_pool=LIST_HEAD_INIT(request_pool);
 static struct htable_node htable[MAX_HASH];
 
 
-typedef int(*MPI_TYPE_COMMIT)(MPI_Datatype *datatype);
-typedef int(*MPI_COMM_SIZE)( MPI_Comm comm, int *size );
-typedef int(*MPI_COMM_RANK)(MPI_Comm comm, int *rank);
 typedef int(*MPI_INIT)(int *argc, char ***argv);
 typedef int(*MPI_INIT_THREAD)(int *argc, char ***argv,
     int required, int *provided);
@@ -50,6 +47,10 @@ typedef int(*MPI_FINALIZE)();
 typedef int(*MPI_SEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
     int tag, MPI_Comm comm);
 typedef int(*MPI_ISEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm, MPI_Request *request);
+typedef int(*MPI_SSEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm);
+typedef int(*MPI_ISSEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
     int tag, MPI_Comm comm, MPI_Request *request);
 typedef int(*MPI_RECV)(void *buf, int count, MPI_Datatype datatype,
     int source, int tag, MPI_Comm comm, MPI_Status *status);
@@ -86,48 +87,52 @@ typedef int(*MPI_BARRIER)(MPI_Comm comm);
 typedef int(*MPI_IBARRIER)(MPI_Comm comm, MPI_Request *request);
 
 enum TRACE_TYPE{
-	type_send,
-	type_recv,
-	type_isend,
-	type_irecv,
-        type_wait,
-        type_waitall,
-        type_test,
-        type_testall,
-        type_alltoall,
-        type_ialltoall,
-        type_bcast,
-        type_ibcast,
-        type_reduce,
-        type_ireduce,
-        type_allreduce,
-        type_iallreduce,
-        type_barrier,
-        type_ibarrier,
-	type_COUNT
+    type_send,
+    type_recv,
+    type_isend,
+    type_irecv,
+    type_ssend,
+    type_issend,
+    type_wait,
+    type_waitall,
+    type_test,
+    type_testall,
+    type_alltoall,
+    type_ialltoall,
+    type_bcast,
+    type_ibcast,
+    type_reduce,
+    type_ireduce,
+    type_allreduce,
+    type_iallreduce,
+    type_barrier,
+    type_ibarrier,
+    type_COUNT
 }; 
 #define MAX_TRACE_NUM 100000
 #define MAX_TRACE_FN 100
 
 static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
-	"MPI_Send",
-	"MPI_Recv",
-	"MPI_Isend",
-	"MPI_Irecv",
-        "MPI_Wait",
-        "MPI_Waitall",
-        "MPI_Test",
-        "MPI_Testall",
-        "MPI_Alltoall",
-        "MPI_Ialltoall",
-        "MPI_Bcast",
-        "MPI_Ibcast",
-        "MPI_Reduce",
-        "MPI_Ireduce",
-        "MPI_Allreduce",
-        "MPI_Iallreduce",
-        "MPI_Barrier",
-        "MPI_Ibarrier",
+    "MPI_Send",
+    "MPI_Recv",
+    "MPI_Isend",
+    "MPI_Irecv",
+    "MPI_Ssend",
+    "MPI_Issend",
+    "MPI_Wait",
+    "MPI_Waitall",
+    "MPI_Test",
+    "MPI_Testall",
+    "MPI_Alltoall",
+    "MPI_Ialltoall",
+    "MPI_Bcast",
+    "MPI_Ibcast",
+    "MPI_Reduce",
+    "MPI_Ireduce",
+    "MPI_Allreduce",
+    "MPI_Iallreduce",
+    "MPI_Barrier",
+    "MPI_Ibarrier",
 };
 
 static int TRACE_IGNORE_LIST[MAX_TRACE_FN]={0};
@@ -136,7 +141,7 @@ static int ignore_count=0;
 static void* TRACE_TYPE_FN[MAX_TRACE_FN];
 
 typedef struct trace_log_struct{
-   int id;
+   long id;
    int type;
    long scount;
    long sdatatype_size;
@@ -148,7 +153,7 @@ typedef struct trace_log_struct{
    double return_ts;
    double end_ts;
    void* comm;
-   /*long private;*/
+   void* private;
 } trace_log_t;
 
 typedef struct pair_log_struct{
@@ -176,7 +181,7 @@ int issue_found_flag=0;
 int tracer_rank=-1;
 static int max_trace_num=MAX_TRACE_NUM;
 static trace_log_t* probe_log=NULL;
-static int trace_index=0;
+static long trace_index=0;
 static double rank_start_ts=0;
 static double GHZ=-1;
 static int writer_enable=1;
@@ -184,8 +189,8 @@ static int trace_reducer_enable=1;
 int MPI_program_warning_enable=1;
 static int log_threshold=0;
 static int total_ranks=0;
-pair_log_t* recv_pairs=NULL;
 pair_log_t* send_pairs=NULL;
+pair_log_t* recv_pairs=NULL;
 pair_log_t* collective_pairs=NULL;
 char root_hostname[256];
 char reducer_log_file[256];
@@ -295,7 +300,6 @@ void* log_writer_thread(){
     FILE* fp;
     int writer_index=0;
     int offset=0;
-    int n=0;
     int wait_n=0;
     while(tracer_rank<0&&!writer_exit_flag){
         usleep(1);
@@ -331,7 +335,6 @@ void* log_writer_thread(){
         wait_n=0;
         print_log(fp,&probe_log[writer_index]);
         writer_index=(writer_index+1)%max_trace_num;
-        n++;
     }
     fclose(fp);
     return NULL;
@@ -451,6 +454,39 @@ void init_mpitracer(){
 
 
 void init_tracer_statistician(){
+    int i;
+    recv_pairs=(pair_log_t*)malloc(sizeof(pair_log_t)*total_ranks);
+    send_pairs=(pair_log_t*)malloc(sizeof(pair_log_t)*total_ranks);
+    collective_pairs=(pair_log_t*)malloc(sizeof(pair_log_t)*DEFAULT_BUF_SIZE);
+    for(i=0;i<total_ranks;i++){
+        recv_pairs[i].src=i;
+        recv_pairs[i].dst=tracer_rank;
+        recv_pairs[i].count=0;
+        recv_pairs[i].total_msg_size=0;
+        recv_pairs[i].max_bw=0;
+        recv_pairs[i].min_bw=999;
+        recv_pairs[i].max_msg_size=0;
+        recv_pairs[i].min_msg_size=99999999;
+        send_pairs[i].dst=i;
+        send_pairs[i].src=tracer_rank;
+        send_pairs[i].count=0;
+        send_pairs[i].total_msg_size=0;
+        send_pairs[i].max_bw=0;
+        send_pairs[i].min_bw=999;
+        send_pairs[i].max_msg_size=0;
+        send_pairs[i].min_msg_size=99999999;
+    }
+}
+
+void free_tracer_statistician(){
+    free(recv_pairs);
+    free(send_pairs);
+    free(collective_pairs);
+}
+
+
+void attach_tracer(){
+    int i;
     void* ptr = dlsym(RTLD_LOCAL,"ompi_mpi_comm_world");
     if(ptr){
         pMPI_comm_world = (MPI_Comm)ptr;
@@ -462,15 +498,17 @@ void init_tracer_statistician(){
         myInt = (MPI_Datatype)0x4c000405;
     }
     MPI_Comm_size(pMPI_comm_world,&total_ranks);
-    send_pairs=(pair_log_t*)malloc(sizeof(pair_log_t)*total_ranks);
-    recv_pairs=(pair_log_t*)malloc(sizeof(pair_log_t)*total_ranks);
-    collective_pairs=(pair_log_t*)malloc(sizeof(pair_log_t)*DEFAULT_BUF_SIZE);
-}
-
-void free_tracer_statistician(){
-    free(send_pairs);
-    free(recv_pairs);
-    free(collective_pairs);
+    if(tracer_rank==-1){
+        MPI_Comm_rank(pMPI_comm_world,&tracer_rank);
+        MPI_Get_processor_name(tracer_hostname,&i);
+        tracer_hostname[i]='\0';
+        #ifdef DEBUG
+        printf("%s\n",tracer_hostname);
+        #endif
+        if(0==tracer_rank){
+            display_info();
+        }
+    }
 }
 
 int MPI_Init(int *argc, char ***argv){
@@ -480,6 +518,7 @@ int MPI_Init(int *argc, char ***argv){
     old_fn= (MPI_INIT)dlsym(handle, "MPI_Init");
     init_mpitracer();
     ret=old_fn(argc, argv);
+    attach_tracer();
     init_tracer_statistician();
     return ret;
 }
@@ -495,6 +534,7 @@ int MPI_Init_thread(int *argc, char ***argv,
     }
     init_mpitracer();
     ret=old_fn(argc, argv,required,provided);
+    attach_tracer();
     init_tracer_statistician();
     return ret;
 }
@@ -527,15 +567,21 @@ inline void print_log(FILE* fp,trace_log_t* log){
     int tag = -1;
     int scount=log->scount;
     int rcount=log->rcount;
+    int pair_type=0;
     pair_log_t* pair=NULL;
     switch(log->type){
         case type_send:
         case type_isend:
+        case type_ssend:
+        case type_issend:
             src=tracer_rank;
             dst=log->peer;
             tag=log->tag;
             rcount=0;
             rsize=0;
+            /*log pair only during recv*/
+            pair=&send_pairs[dst];
+            pair_type=0;
             break;
         case type_recv:
         case type_irecv:
@@ -545,7 +591,10 @@ inline void print_log(FILE* fp,trace_log_t* log){
             scount=0;
             ssize=0;
             /*log pair only during recv*/
-            pair=&recv_pairs[src];
+            if(src>=0) {
+                pair=&recv_pairs[src];
+                pair_type=1;
+            }
             break;
         case type_bcast:
         case type_ibcast:
@@ -590,9 +639,10 @@ inline void print_log(FILE* fp,trace_log_t* log){
         rgbps=0.0;
     }
     if(pair){
-        update_pair_data(pair,rlen,rgbps,log->start_ts,log->end_ts); 
+        if(pair_type==0) update_pair_data(pair,slen,sgbps,log->start_ts,log->end_ts); 
+        if(pair_type==1) update_pair_data(pair,rlen,rgbps,log->start_ts,log->end_ts); 
     }
-    fprintf( fp, "%9d %25s %11.6lf %9.6lf %10.6lf %10p %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf %s\n", log->id,TRACE_TYPE_NAME[log->type],(log->start_ts-rank_start_ts) ,(log->return_ts-log->start_ts),elapse,comm,tag,src,dst,scount,ssize,slen,sgbps,rcount,rsize,rlen,rgbps,debug_info);
+    fprintf( fp, "%9ld %25s %11.6lf %9.6lf %10.6lf %10p %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf %s\n", log->id,TRACE_TYPE_NAME[log->type],(log->start_ts-rank_start_ts) ,(log->return_ts-log->start_ts),elapse,comm,tag,src,dst,scount,ssize,slen,sgbps,rcount,rsize,rlen,rgbps,debug_info);
 }
 
 
@@ -624,8 +674,9 @@ void record_statistic(pair_log_t* pairs,int count,char* table){
     fclose(fp);
 }
 
+
 void trace_reducer_process(){
-    /*for pt2pt, only count at recv side*/
+    /*for pt2pt only*/
     int i,j;
     int count=0;
     int* len_list=NULL;
@@ -636,12 +687,21 @@ void trace_reducer_process(){
     pair_log_t* local_pairs=NULL;
     pair_log_t* pair_logs=NULL;
     for(i=0;i<total_ranks;i++){
+        if(send_pairs[i].count==0) continue;
+        count++;
+    }
+    for(i=0;i<total_ranks;i++){
         if(recv_pairs[i].count==0) continue;
         count++;
     }
     if(count>0){
         local_pairs=(pair_log_t*)malloc(sizeof(pair_log_t)*count);
         j=0;
+        for(i=0;i<total_ranks;i++){
+            if(send_pairs[i].count==0) continue;
+            memcpy(&local_pairs[j],&send_pairs[i],sizeof(pair_log_t));
+            j++;     
+        }
         for(i=0;i<total_ranks;i++){
             if(recv_pairs[i].count==0) continue;
             memcpy(&local_pairs[j],&recv_pairs[i],sizeof(pair_log_t));
@@ -687,18 +747,10 @@ int MPI_Finalize(){
     Ignore_all_fn();
     MPI_Barrier(pMPI_comm_world);
     tracer_exit_flag=1;
-    if(trace_reducer_enable){
-        trace_reducer_process();
-    }
-    old_fn= (MPI_FINALIZE)dlsym(handle, "MPI_Finalize");
-    ret=old_fn();
     if(writer_enable){
         writer_exit_flag=1;
         pthread_join(tid,NULL);
     }else{
-        if(0==tracer_rank){
-            printf("MPITRACER\tRecording MPI Hook of rank:%d,total entries:%d\n",tracer_rank,trace_index);
-        }
         sprintf(log_file,"%s/%s_%d.log",log_dir,log_prefix,tracer_rank);
         fp=fopen(log_file,"w");
         fprintf( fp, "%9s %25s %11s %9s %10s %10s %7s %7s %7s %9s %8s %8s %7s %9s %8s %8s %7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
@@ -714,6 +766,9 @@ int MPI_Finalize(){
     if(mt_flag){
         pthread_mutex_destroy( &log_mutex ) ;
     }
+    if(trace_reducer_enable){
+        trace_reducer_process();
+    }
     #ifdef DEBUG
     view_htable(htable);
     #endif
@@ -721,6 +776,7 @@ int MPI_Finalize(){
     free_tracer_statistician();
     if(0==tracer_rank){
         printf("MPITRACER\tPlease check files of %s/%s_<rank_id>.log on each node\n",log_dir,log_prefix);
+        printf("MPITRACER\tRecord %ld traces of rank 0\n",(trace_index+1));
         if(issue_found_flag){
             printf("MPITRACER\tProgram issues found that using Non-blocking, check the traces where elapse time is 999.0\n");
         }
@@ -729,49 +785,13 @@ int MPI_Finalize(){
         }
     }
     dlclose(handle);
+    old_fn= (MPI_FINALIZE)dlsym(handle, "MPI_Finalize");
+    ret=old_fn();
     return ret;
 }
 
 
-int MPI_Comm_rank(MPI_Comm comm, int *rank){
-    static MPI_COMM_RANK old_fn = NULL;
-    int ret=0;
-    int i;
-    old_fn= (MPI_COMM_RANK)dlsym(handle, "MPI_Comm_rank");
-    ret=old_fn(comm, rank);
-    if(tracer_rank==-1){
-        tracer_rank=*rank;
-        MPI_Get_processor_name(tracer_hostname,&i);
-        tracer_hostname[i]='\0';
-        #ifdef DEBUG
-        printf("%s\n",tracer_hostname);
-        #endif
-        if(0==tracer_rank){
-            display_info();
-        }
-        for(i=0;i<total_ranks;i++){
-            send_pairs[i].src=tracer_rank;
-            send_pairs[i].dst=i;
-            send_pairs[i].count=0;
-            send_pairs[i].total_msg_size=0;
-            send_pairs[i].max_bw=0;
-            send_pairs[i].min_bw=999;
-            send_pairs[i].max_msg_size=0;
-            send_pairs[i].min_msg_size=99999999;
-            recv_pairs[i].dst=tracer_rank;
-            recv_pairs[i].src=i;
-            recv_pairs[i].count=0;
-            recv_pairs[i].total_msg_size=0;
-            recv_pairs[i].max_bw=0;
-            recv_pairs[i].min_bw=999;
-            recv_pairs[i].max_msg_size=0;
-            recv_pairs[i].min_msg_size=99999999;
-        }
-    }
-    return ret;
-}
-
-inline static void new_log(trace_log_t* log,int type,int idx,double start_ts,double return_ts,double end_ts){
+inline static void new_log(trace_log_t* log,int type,long idx,double start_ts,double return_ts,double end_ts){
     log->type=type;
     log->id=idx;
     log->start_ts=start_ts;
@@ -846,6 +866,63 @@ int MPI_Isend(const void *buf, int count, MPI_Datatype datatype, int dest,
     return ret;
 }
 
+int MPI_Ssend(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm){
+    int ret;
+    int type=type_ssend;
+    double start,end;
+    int idx=-1;
+    trace_log_t* log;
+    MPI_SSEND fn=TRACE_TYPE_FN[type];
+    int size=0;
+    MPI_Type_size(datatype,&size);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buf,count,datatype,dest,tag,comm);
+    start=timer_fn();
+    ret=fn(buf,count,datatype,dest,tag,comm);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=comm;
+    log->peer=dest;
+    log->scount=count;
+    log->sdatatype_size=size;
+    log->tag=tag;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Issend(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm, MPI_Request *request){
+    int ret;
+    int type=type_issend;
+    double start,end;
+    int idx=-1;
+    trace_log_t* log;
+    MPI_ISSEND fn=TRACE_TYPE_FN[type];
+    int size=0;
+    MPI_Type_size(datatype,&size);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buf,count,datatype,dest,tag,comm,request);
+    start=timer_fn();
+    ret=fn(buf,count,datatype,dest,tag,comm,request);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,0);
+    log->comm=comm;
+    log->peer=dest;
+    log->scount=count;
+    log->sdatatype_size=size;
+    log->tag=tag;
+    cache_request(request,trace_index);
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
 int MPI_Recv(void *buf, int count, MPI_Datatype datatype,
     int source, int tag, MPI_Comm comm, MPI_Status *status){
     int ret;
@@ -855,6 +932,7 @@ int MPI_Recv(void *buf, int count, MPI_Datatype datatype,
     trace_log_t* log;
     MPI_RECV fn=TRACE_TYPE_FN[type];
     int size=0;
+    int tmp_count=0;
     MPI_Type_size(datatype,&size);
     if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buf,count,datatype,source,tag,comm,status);
     start=timer_fn();
@@ -864,11 +942,18 @@ int MPI_Recv(void *buf, int count, MPI_Datatype datatype,
     idx=trace_index%max_trace_num;
     log=&probe_log[idx];
     new_log(log,type,trace_index,start,end,end);
+    if(status!=MPI_STATUS_IGNORE){
+        log->peer=status->MPI_SOURCE;
+        log->tag=status->MPI_TAG;
+        MPI_Get_count(status,datatype,&tmp_count);
+        log->rcount=tmp_count;
+    }else{
+        log->rcount=count;
+        log->peer=source;
+        log->tag=tag;
+    }
     log->comm=comm;
-    log->peer=source;
-    log->rcount=count;
     log->rdatatype_size=size;
-    log->tag=tag;
     trace_index++;
     MT_UNLOCK()
     return ret;
@@ -892,21 +977,26 @@ int MPI_Irecv(void *buf, int count, MPI_Datatype datatype,
     idx=trace_index%max_trace_num;
     log=&probe_log[idx];
     new_log(log,type,trace_index,start,end,0);
-    log->comm=comm;
-    log->peer=source;
     log->rcount=count;
-    log->rdatatype_size=size;
+    log->peer=source;
     log->tag=tag;
+    log->comm=comm;
+    log->rdatatype_size=size;
+    log->private=datatype;
     cache_request(request,trace_index);
     trace_index++;
     MT_UNLOCK()
     return ret;
 }
 
-inline static void update_end_ts_of_cached_logs(int count,MPI_Request* array_of_requests,double end){
+inline static void update_end_ts_of_cached_logs(int count,MPI_Request* array_of_requests,MPI_Status* array_of_statuses,double end){
     int i;
     void* ptr;
     struct request_node* r;
+    int idx;
+    MPI_Status* status;
+    int tmp_count;
+    trace_log_t* log; 
     #ifdef DEBUG
     if(tracer_rank==0) {
         printf("check request %p %d\t",array_of_requests,count);
@@ -925,7 +1015,18 @@ inline static void update_end_ts_of_cached_logs(int count,MPI_Request* array_of_
           #endif
           continue;
        }else{
-          probe_log[r->index%max_trace_num].end_ts=end;
+          idx=r->index%max_trace_num;
+          log=&probe_log[idx];
+          status=((MPI_Status*)array_of_statuses+i);
+          if(status!=MPI_STATUS_IGNORE){
+              if(log->type==type_irecv){
+                  log->peer=status->MPI_SOURCE;
+                  log->tag=status->MPI_TAG;
+                  MPI_Get_count(status,log->private,&tmp_count);
+                  log->rcount=tmp_count;
+              }
+          }
+          log->end_ts=end;
           recycle_request_node(r,&request_pool);
        } 
     }
@@ -942,7 +1043,7 @@ int MPI_Wait(MPI_Request *request, MPI_Status *status){
     ret=fn(request,status);
     end=timer_fn();
     MT_LOCK()
-    update_end_ts_of_cached_logs(1,request,end);
+    update_end_ts_of_cached_logs(1,request,status,end);
     if((TRACE_IGNORE_LIST[type])||(log_threshold>0)){
         MT_UNLOCK()
         return ret;
@@ -968,7 +1069,7 @@ int MPI_Waitall(int count, MPI_Request array_of_requests[],
     ret=fn(count,array_of_requests,array_of_statuses);
     end=timer_fn();
     MT_LOCK()
-    update_end_ts_of_cached_logs(count,array_of_requests,end);
+    update_end_ts_of_cached_logs(count,array_of_requests,array_of_statuses,end);
     if((TRACE_IGNORE_LIST[type])||(log_threshold>0)) {
         MT_UNLOCK()
         return ret;
@@ -996,7 +1097,7 @@ int MPI_Test(MPI_Request *request, int *flag, MPI_Status *status){
     }
     end=timer_fn();
     MT_LOCK()
-    update_end_ts_of_cached_logs(1,request,end);
+    update_end_ts_of_cached_logs(1,request,status,end);
     if((TRACE_IGNORE_LIST[type])||(log_threshold>0)) {
         MT_UNLOCK()
         return ret;
@@ -1026,7 +1127,7 @@ int MPI_Testall(int count, MPI_Request array_of_requests[],
     }
     end=timer_fn();
     MT_LOCK()
-    update_end_ts_of_cached_logs(count,array_of_requests,end);
+    update_end_ts_of_cached_logs(count,array_of_requests,array_of_statuses,end);
     if((TRACE_IGNORE_LIST[type])||(log_threshold>0)) {
         MT_UNLOCK()
         return ret;

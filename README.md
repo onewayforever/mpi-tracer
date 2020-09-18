@@ -188,6 +188,10 @@ MPI_Isend
 
 MPI_Irecv
 
+MPI_Ssend
+
+MPI_Issend
+
 MPI_Wait
 
 MPI_Waitall
