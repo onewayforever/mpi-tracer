@@ -144,7 +144,7 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 
 
 
-Only support pt2pt traffic now
+Pt2pt/bcast/reduce traffic are supportted 
 
 ```
           SHost            SRC            DHost            DST       Start          Elapse           TotalCount              TotalBytes         Max_msg         Min_msg         Avg_msg         Max_bw  Min_bw  Avg_bw Bw_mean

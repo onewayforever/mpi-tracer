@@ -599,10 +599,28 @@ inline void print_log(FILE* fp,trace_log_t* log){
         case type_bcast:
         case type_ibcast:
             src=log->peer;
+            if(src==tracer_rank) {
+                /*
+                pair=&send_pairs[src];
+                pair_type=0;
+                */
+            }else{
+                pair=&recv_pairs[src];
+                pair_type=1;
+            }
+
             break;
         case type_reduce:
         case type_ireduce:
             dst=log->peer;
+            if(dst!=tracer_rank) {
+                pair=&send_pairs[dst];
+                pair_type=0;
+            }else{
+                /*pair=&recv_pairs[src];
+                pair_type=1;
+                */
+            }
             break;
         case type_wait:
         case type_test:
@@ -784,9 +802,9 @@ int MPI_Finalize(){
             printf("MPITRACER\tTrace summary saved to %s:%s\n",root_hostname,reducer_log_file);
         }
     }
-    dlclose(handle);
     old_fn= (MPI_FINALIZE)dlsym(handle, "MPI_Finalize");
     ret=old_fn();
+    dlclose(handle);
     return ret;
 }
 
@@ -1257,7 +1275,7 @@ int MPI_Ibcast(void *buffer, int count, MPI_Datatype datatype,
     MT_LOCK()
     idx=trace_index%max_trace_num;
     log=&probe_log[idx];
-    new_log(log,type,trace_index,start,end,end);
+    new_log(log,type,trace_index,start,end,0);
     log->comm=comm;
     log->peer=root;
     if(root==tracer_rank){
