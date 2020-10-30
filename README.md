@@ -227,7 +227,7 @@ MPI_Ibarrier
 * Works with openmpi or Intelmpi
 * Tested on OSU Micro-Benchmarks 5.5 and HPL 2.2
 * Tested on mpiGraph
-  * there is a bug in mpiGraph, see https://github.com/LLNL/mpiGraph/pull/2/files to fix and run
+  * ~~there is a bug in mpiGraph, see https://github.com/LLNL/mpiGraph/pull/2/files to fix and run~~ (Already merged & fixed in latest version)
 
 
 
