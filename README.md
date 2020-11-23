@@ -234,7 +234,7 @@ MPI_Ibarrier
 ## Notes
 
 * Linux Only
-* Works with openmpi or Intelmpi
+* Works with openmpi or Intelmpi, ensure to use corresponding path to mpi.h head file to compile the code.
 * Tested on OSU Micro-Benchmarks 5.5 and HPL 2.2
 * Tested on mpiGraph
   * ~~there is a bug in mpiGraph, see https://github.com/LLNL/mpiGraph/pull/2/files to fix and run~~ (Already fixed & merged in latest version)
