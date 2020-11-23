@@ -135,6 +135,11 @@ static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
     "MPI_Ibarrier",
 };
 
+#define OPENMPI 1
+#define INTELMPI 2
+
+static int use_mpi=0;
+
 static int TRACE_IGNORE_LIST[MAX_TRACE_FN]={0};
 static int ignore_count=0;
 
@@ -350,6 +355,15 @@ void init_mpitracer(){
     time(&app_start_time); 
     init_request_pool(&request_pool,DEFAULT_BUF_SIZE);
     init_htable(htable);
+    env=getenv("MPITRACER_MPI");
+    if(env){
+        if(strcmp(env,"openmpi")==0){
+            use_mpi=OPENMPI;
+        }
+        if(strcmp(env,"intelmpi")==0){
+            use_mpi=INTELMPI;
+        }
+    }
     env=getenv("MPITRACER_LOG_SIZE");
     if(!env){
         max_trace_num=MAX_TRACE_NUM;
@@ -487,15 +501,32 @@ void free_tracer_statistician(){
 
 void attach_tracer(){
     int i;
-    void* ptr = dlsym(RTLD_LOCAL,"ompi_mpi_comm_world");
-    if(ptr){
+    int detect=use_mpi;
+    void* ptr=NULL; 
+    if(detect==0){
+        ptr = dlsym(RTLD_LOCAL,"ompi_mpi_comm_world");
+        if(ptr){
+            detect=OPENMPI;
+        }else if(dlsym(RTLD_LOCAL,"iPMI_Init")){
+            detect=INTELMPI;
+        }
+    }
+    switch(detect){
+    case OPENMPI:
+        printf("MPITRACER\tUse openmpi!\n");
         pMPI_comm_world = (MPI_Comm)ptr;
         myChar = dlsym(RTLD_LOCAL, "ompi_mpi_char");
         myInt = dlsym(RTLD_LOCAL, "ompi_mpi_int");
-    }else if(dlsym(RTLD_LOCAL,"iPMI_Init")){
+        break;
+    case INTELMPI:
+        printf("MPITRACER\tUse intelmpi!\n");
         pMPI_comm_world = (MPI_Comm)0x44000000;
         myChar = (MPI_Datatype)0x4c000101;
         myInt = (MPI_Datatype)0x4c000405;
+        break;
+    default:
+        printf("MPITRACER\tCan not identify the mpi to inject. Try setting env MPITRACER_MPI=openmpi/intelmpi manually!\n");
+        exit(0);
     }
     MPI_Comm_size(pMPI_comm_world,&total_ranks);
     if(tracer_rank==-1){

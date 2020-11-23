@@ -53,6 +53,16 @@ mpirun  --hostfile myhosts -np 64 -npernode 32  -x LD_PRELOAD=/path/to/mpitracer
 
 MPI tracer use environment variables to pass parameters. The available options are listed below.
 
+* MPITRACER_MPI
+
+  Assign which kind of mpi to use, default: auto detect
+
+  Options:
+
+  ​       openmpi
+
+  ​       intelmpi
+
 * MPITRACER_LOG_SIZE
 
    Log entries per rank, default: 100000
@@ -227,7 +237,7 @@ MPI_Ibarrier
 * Works with openmpi or Intelmpi
 * Tested on OSU Micro-Benchmarks 5.5 and HPL 2.2
 * Tested on mpiGraph
-  * ~~there is a bug in mpiGraph, see https://github.com/LLNL/mpiGraph/pull/2/files to fix and run~~ (Already merged & fixed in latest version)
+  * ~~there is a bug in mpiGraph, see https://github.com/LLNL/mpiGraph/pull/2/files to fix and run~~ (Already fixed & merged in latest version)
 
 
 
