@@ -18,99 +18,14 @@
 #include <sys/time.h>
 #include "util.h"
 #include <dlfcn.h>
-
-
-#define MT
-
-#ifdef MT
-#define MT_LOCK() {if(mt_flag) { pthread_mutex_lock(&log_mutex);}}
-#define MT_UNLOCK() {if(mt_flag) { pthread_mutex_unlock(&log_mutex);}}
-#else
-#define MT_LOCK() {}
-#define MT_UNLOCK() {}
-#endif
-
-
-#define END_TS_DELAY 0
-
-#define DEFAULT_BUF_SIZE 1024
+#include "mpitracer.h"
 
 
 static struct list_head request_pool=LIST_HEAD_INIT(request_pool);
-static struct htable_node htable[MAX_HASH];
+static struct list_head group_pool=LIST_HEAD_INIT(group_pool);
+static struct htable_node request_htable[MAX_HASH];
+static struct htable_node group_htable[MAX_HASH];
 
-
-typedef int(*MPI_INIT)(int *argc, char ***argv);
-typedef int(*MPI_INIT_THREAD)(int *argc, char ***argv,
-    int required, int *provided);
-typedef int(*MPI_FINALIZE)();
-typedef int(*MPI_SEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
-    int tag, MPI_Comm comm);
-typedef int(*MPI_ISEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
-    int tag, MPI_Comm comm, MPI_Request *request);
-typedef int(*MPI_SSEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
-    int tag, MPI_Comm comm);
-typedef int(*MPI_ISSEND)(const void *buf, int count, MPI_Datatype datatype, int dest,
-    int tag, MPI_Comm comm, MPI_Request *request);
-typedef int(*MPI_RECV)(void *buf, int count, MPI_Datatype datatype,
-    int source, int tag, MPI_Comm comm, MPI_Status *status);
-typedef int(*MPI_IRECV)(void *buf, int count, MPI_Datatype datatype,
-        int source, int tag, MPI_Comm comm, MPI_Request *request);
-typedef int(*MPI_WAIT)(MPI_Request *request, MPI_Status *status);
-typedef int(*MPI_WAITALL)(int count, MPI_Request array_of_requests[],
-    MPI_Status *array_of_statuses);
-typedef int(*MPI_TEST)(MPI_Request *request, int *flag, MPI_Status *status);
-typedef int(*MPI_TESTALL)(int count, MPI_Request array_of_requests[],
-    int *flag, MPI_Status array_of_statuses[]);
-typedef int(*MPI_ALLTOALL)(const void *sendbuf, int sendcount,
-    MPI_Datatype sendtype, void *recvbuf, int recvcount,
-    MPI_Datatype recvtype, MPI_Comm comm);
-typedef int(*MPI_BCAST)(void *buffer, int count, MPI_Datatype datatype,
-    int root, MPI_Comm comm);
-typedef int(*MPI_IBCAST)(void *buffer, int count, MPI_Datatype datatype,
-    int root, MPI_Comm comm, MPI_Request *request);
-typedef int(*MPI_REDUCE)(const void *sendbuf, void *recvbuf, int count,
-               MPI_Datatype datatype, MPI_Op op, int root,
-               MPI_Comm comm);
-typedef int(*MPI_IREDUCE)(const void *sendbuf, void *recvbuf, int count,
-                MPI_Datatype datatype, MPI_Op op, int root,
-                MPI_Comm comm, MPI_Request *request);
-typedef int(*MPI_ALLREDUCE)(const void *sendbuf, void *recvbuf, int count,
-                  MPI_Datatype datatype, MPI_Op op, MPI_Comm comm);
-typedef int(*MPI_IALLREDUCE)(const void *sendbuf, void *recvbuf, int count,
-                   MPI_Datatype datatype, MPI_Op op, MPI_Comm comm,
-                   MPI_Request *request);
-typedef int(*MPI_IALLTOALL)(const void *sendbuf, int sendcount,
-    MPI_Datatype sendtype, void *recvbuf, int recvcount,
-    MPI_Datatype recvtype, MPI_Comm comm, MPI_Request *request);
-typedef int(*MPI_BARRIER)(MPI_Comm comm);
-typedef int(*MPI_IBARRIER)(MPI_Comm comm, MPI_Request *request);
-
-enum TRACE_TYPE{
-    type_send,
-    type_recv,
-    type_isend,
-    type_irecv,
-    type_ssend,
-    type_issend,
-    type_wait,
-    type_waitall,
-    type_test,
-    type_testall,
-    type_alltoall,
-    type_ialltoall,
-    type_bcast,
-    type_ibcast,
-    type_reduce,
-    type_ireduce,
-    type_allreduce,
-    type_iallreduce,
-    type_barrier,
-    type_ibarrier,
-    type_COUNT
-}; 
-#define MAX_TRACE_NUM 100000
-#define MAX_TRACE_FN 100
 
 static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
     "MPI_Send",
@@ -133,6 +48,9 @@ static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
     "MPI_Iallreduce",
     "MPI_Barrier",
     "MPI_Ibarrier",
+    "MPI_Comm_split",
+    "MPI_Comm_dup",
+    "MPI_Comm_create",
 };
 
 #define OPENMPI 1
@@ -144,36 +62,6 @@ static int TRACE_IGNORE_LIST[MAX_TRACE_FN]={0};
 static int ignore_count=0;
 
 static void* TRACE_TYPE_FN[MAX_TRACE_FN];
-
-typedef struct trace_log_struct{
-   long id;
-   int type;
-   long scount;
-   long sdatatype_size;
-   long rcount;
-   long rdatatype_size;
-   int peer;
-   int tag;
-   double start_ts;
-   double return_ts;
-   double end_ts;
-   void* comm;
-   void* private;
-} trace_log_t;
-
-typedef struct pair_log_struct{
-   int src;
-   int dst;
-   long count;
-   long total_msg_size;
-   int max_msg_size;
-   int min_msg_size;
-   float max_bw;
-   float min_bw;
-   float total_bw;
-   double start_ts;
-   double end_ts;
-} pair_log_t;
 
 
 static pthread_t tid;
@@ -188,7 +76,6 @@ static int max_trace_num=MAX_TRACE_NUM;
 static trace_log_t* probe_log=NULL;
 static long trace_index=0;
 static double rank_start_ts=0;
-static double GHZ=-1;
 static int writer_enable=1;
 static int trace_reducer_enable=1;
 int MPI_program_warning_enable=1;
@@ -202,22 +89,6 @@ char reducer_log_file[256];
 
 time_t app_start_time;
 
-static double tsc_timer(){
-    unsigned long var;
-    unsigned int hi, lo;
-    __asm volatile ("rdtsc" : "=a" (lo), "=d" (hi));
-    var = ((unsigned long)hi << 32) | lo;
-    double time=var/GHZ*1e-9;
-    return (time);
-}
-
-static double gettimeofday_timer()
-{
-    struct timeval             tp;
-    (void) gettimeofday( &tp, NULL );
-
-    return ( (double) tp.tv_sec  + ((double)tp.tv_usec / 1000000.0 )) ;
-}
 
 typedef double(*Timer)();
 
@@ -251,6 +122,59 @@ static MPI_Datatype myInt=NULL;
 static MPI_Datatype myChar=NULL;
 
 
+static int inline rank2global(int rank,MPI_Comm comm){
+    group_node_t* g;
+    if(comm==pMPI_comm_world)
+        return rank;
+    g=hash_find_obj((long)comm,group_htable,group_node_t);
+    if(!g) return -1;
+    if((rank>=g->num)||rank<0){
+        printf("unkown group mapping %p total:%d rank:%d\n",comm,g->num,rank);
+        return -1;
+    }else{
+        return g->map[rank];
+    }
+}
+
+inline int check_group_conflict(group_node_t* item,group_node_t* add){
+    printf("find group conflict!\n");
+    return 1; 
+}
+
+void update_group(MPI_Comm comm){
+    group_node_t* g;
+    MPI_Group my_group,world_group;
+    int size=0;
+    int* map=NULL;
+    int* tmp=NULL;
+    int i;
+    if(comm==MPI_COMM_NULL)
+        return;
+    g=hash_find_obj((long)comm,group_htable,group_node_t);
+    if(g){
+    }else{
+        g=pool_pop(&group_pool,group_node_t);
+        if(g){
+            g->key=(long)comm;
+            g->num=0;
+            g->map=NULL;
+            hash_add_obj(g,group_htable,group_node_t,check_group_conflict);
+        }
+    }    
+    if(g->map) free(g->map);
+    MPI_Comm_size(comm,&size);
+    if(size>0){
+        MPI_Comm_group(comm,&my_group);
+        MPI_Comm_group(pMPI_comm_world,&world_group);
+        tmp=(int*)malloc(sizeof(int)*size);
+        for(i=0;i<size;i++) tmp[i]=i;
+        map=(int*)malloc(sizeof(int)*size);
+        MPI_Group_translate_ranks(my_group,size,tmp,world_group,map);
+        g->num=size;
+        g->map=map;
+        free(tmp);
+    }
+}
 
 void display_info(){
     int i,j;
@@ -311,7 +235,7 @@ void* log_writer_thread(){
     }
     sprintf(log_file,"%s/%s_%d.log",log_dir,log_prefix,tracer_rank);
     fp=fopen(log_file,"w");
-    fprintf( fp, "%9s %25s %11s %9s %10s %8s %7s %7s %7s %9s %8s %8s %7s %9s %8s %8s %7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
+    fprintf( fp, "%9s %25s %11s %9s %10s %8s %7s %7s %7s %7s %7s %9s %8s %8s %7s %9s %8s %8s %7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","GSRC","GDST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
     while(1){
         offset = trace_index%max_trace_num;
         if(writer_index==offset){
@@ -345,6 +269,17 @@ void* log_writer_thread(){
     return NULL;
 }
 
+void inline init_request(request_node_t* obj){
+    obj->key = 0;
+    obj->index = -1;
+}
+
+void inline init_group(group_node_t* obj){
+    obj->key = 0;
+    obj->num = 0;
+    obj->map = NULL;
+}
+
 void init_mpitracer(){
     int i,j;
     char* env;
@@ -353,8 +288,10 @@ void init_mpitracer(){
     char* tmp;
     if(tracer_init_flag) return;
     time(&app_start_time); 
-    init_request_pool(&request_pool,DEFAULT_BUF_SIZE);
-    init_htable(htable);
+    init_pool(&request_pool,request_node_t,DEFAULT_BUF_SIZE,init_request);
+    init_pool(&group_pool,group_node_t,DEFAULT_GROUP_SIZE,init_group);
+    init_htable(request_htable);
+    init_htable(group_htable);
     env=getenv("MPITRACER_MPI");
     if(env){
         if(strcmp(env,"openmpi")==0){
@@ -570,6 +507,7 @@ int MPI_Init_thread(int *argc, char ***argv,
     return ret;
 }
 
+
 void update_pair_data(pair_log_t* pair,int len,double gbps,double start_ts,double end_ts){
     if(pair->count==0) pair->start_ts=start_ts-rank_start_ts;
     pair->count++;
@@ -587,6 +525,8 @@ inline void print_log(FILE* fp,trace_log_t* log){
     void* comm=log->comm;
     int src=-1;
     int dst=-1;
+    int gsrc=-1;
+    int gdst=-1;
     int slen=0;
     int rlen=0;
     int ssize=log->sdatatype_size;
@@ -605,38 +545,47 @@ inline void print_log(FILE* fp,trace_log_t* log){
         case type_isend:
         case type_ssend:
         case type_issend:
+        case type_bsend:
+        case type_ibsend:
+        case type_rsend:
+        case type_irsend:
             src=tracer_rank;
             dst=log->peer;
+            gsrc=tracer_rank;
+            gdst=log->gpeer;
             tag=log->tag;
             rcount=0;
             rsize=0;
             /*log pair only during recv*/
-            pair=&send_pairs[dst];
+            pair=&send_pairs[gdst];
             pair_type=0;
             break;
         case type_recv:
         case type_irecv:
             dst=tracer_rank;
             src=log->peer;
+            gdst=tracer_rank;
+            gsrc=log->gpeer;
             tag=log->tag;
             scount=0;
             ssize=0;
             /*log pair only during recv*/
-            if(src>=0) {
-                pair=&recv_pairs[src];
+            if(gsrc>=0) {
+                pair=&recv_pairs[gsrc];
                 pair_type=1;
             }
             break;
         case type_bcast:
         case type_ibcast:
             src=log->peer;
-            if(src==tracer_rank) {
+            gsrc=log->gpeer;
+            if(gsrc==tracer_rank) {
                 /*
                 pair=&send_pairs[src];
                 pair_type=0;
                 */
             }else{
-                pair=&recv_pairs[src];
+                pair=&recv_pairs[gsrc];
                 pair_type=1;
             }
 
@@ -644,8 +593,9 @@ inline void print_log(FILE* fp,trace_log_t* log){
         case type_reduce:
         case type_ireduce:
             dst=log->peer;
-            if(dst!=tracer_rank) {
-                pair=&send_pairs[dst];
+            gdst=log->gpeer;
+            if(gdst!=tracer_rank) {
+                pair=&send_pairs[gdst];
                 pair_type=0;
             }else{
                 /*pair=&recv_pairs[src];
@@ -664,6 +614,9 @@ inline void print_log(FILE* fp,trace_log_t* log){
             break;
         case type_barrier:
         case type_ibarrier:
+        case type_comm_split:
+        case type_comm_dup:
+        case type_comm_create:
             scount=0;
             rcount=0;
             ssize=0;
@@ -691,7 +644,7 @@ inline void print_log(FILE* fp,trace_log_t* log){
         if(pair_type==0) update_pair_data(pair,slen,sgbps,log->start_ts,log->end_ts); 
         if(pair_type==1) update_pair_data(pair,rlen,rgbps,log->start_ts,log->end_ts); 
     }
-    fprintf( fp, "%9ld %25s %11.6lf %9.6lf %10.6lf %10p %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf %s\n", log->id,TRACE_TYPE_NAME[log->type],(log->start_ts-rank_start_ts) ,(log->return_ts-log->start_ts),elapse,comm,tag,src,dst,scount,ssize,slen,sgbps,rcount,rsize,rlen,rgbps,debug_info);
+    fprintf( fp, "%9ld %25s %11.6lf %9.6lf %10.6lf %10p %7d %7d %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf %s\n", log->id,TRACE_TYPE_NAME[log->type],(log->start_ts-rank_start_ts) ,(log->return_ts-log->start_ts),elapse,comm,tag,src,dst,gsrc,gdst,scount,ssize,slen,sgbps,rcount,rsize,rlen,rgbps,debug_info);
 }
 
 
@@ -718,6 +671,7 @@ void record_statistic(pair_log_t* pairs,int count,char* table){
         avg_msg_size=(int)(pair->total_msg_size/pair->count);
         avg_bw=pair->total_msg_size/(elapse+0.000001)*8*1e-9;
         bw_mean=pair->total_bw/pair->count;
+        //printf("%lf,%ld,%lf\n",pair->total_bw,pair->count,bw_mean);
         fprintf(fp,"%16s\t%7d\t%16s\t%7d\t%11.6lf\t%11.6lf\t%16ld\t%16ld\t%8d\t%8d\t%8d\t%7.3lf\t%7.3lf\t%7.3lf\t%7.3lf\n",&table[256*pair->src],pair->src,&table[256*pair->dst],pair->dst,pair->start_ts,elapse,pair->count,pair->total_msg_size, pair->max_msg_size,pair->min_msg_size,avg_msg_size,pair->max_bw,pair->min_bw,avg_bw,bw_mean);
     }
     fclose(fp);
@@ -802,7 +756,7 @@ int MPI_Finalize(){
     }else{
         sprintf(log_file,"%s/%s_%d.log",log_dir,log_prefix,tracer_rank);
         fp=fopen(log_file,"w");
-        fprintf( fp, "%9s %25s %11s %9s %10s %10s %7s %7s %7s %9s %8s %8s %7s %9s %8s %8s %7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
+        fprintf( fp, "%9s %25s %11s %9s %10s %10s %7s %7s %7s %7s %7s %9s %8s %8s %7s %9s %8s %8s %7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","GSRC","GDST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
         offset = trace_index%max_trace_num;
         for(i=offset;i<max_trace_num;i++){
             print_log(fp,&probe_log[i]);
@@ -819,7 +773,7 @@ int MPI_Finalize(){
         trace_reducer_process();
     }
     #ifdef DEBUG
-    view_htable(htable);
+    view_htable(request_htable);
     #endif
     free(probe_log);
     free_tracer_statistician();
@@ -848,13 +802,21 @@ inline static void new_log(trace_log_t* log,int type,long idx,double start_ts,do
     log->end_ts=end_ts;
 }
 
+inline int check_request_conflict(request_node_t* item,request_node_t* add){
+    if(MPI_program_warning_enable) {
+        printf("MPITRACER:\tFound the program reused the request before call MPI_Test/MPI_Wait, set MPITRACER_FOUND_ASYNC_BUG_WARNING=0 to disable this Warning\n");
+        issue_found_flag=1;
+    }
+    return 1; 
+}
+
 inline static void cache_request(MPI_Request* request,int index){
     struct request_node* r;
-    r=pool_pop(&request_pool);
+    r=pool_pop(&request_pool,request_node_t);
     if(r){
-        r->ptr=(void*)request;
+        r->key=(long)request;
         r->index=index;
-        hash_add_request(r,htable);
+        hash_add_obj(r,request_htable,request_node_t,check_request_conflict);
     }
 }
 
@@ -878,6 +840,7 @@ int MPI_Send(const void *buf, int count, MPI_Datatype datatype, int dest,
     new_log(log,type,trace_index,start,end,end);
     log->comm=comm;
     log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
     log->scount=count;
     log->sdatatype_size=size;
     log->tag=tag;
@@ -906,6 +869,66 @@ int MPI_Isend(const void *buf, int count, MPI_Datatype datatype, int dest,
     new_log(log,type,trace_index,start,end,0);
     log->comm=comm;
     log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=count;
+    log->sdatatype_size=size;
+    log->tag=tag;
+    cache_request(request,trace_index);
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Bsend(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm){
+    int ret;
+    int type=type_bsend;
+    double start,end;
+    int idx=-1;
+    trace_log_t* log;
+    MPI_BSEND fn=TRACE_TYPE_FN[type];
+    int size=0;
+    MPI_Type_size(datatype,&size);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buf,count,datatype,dest,tag,comm);
+    start=timer_fn();
+    ret=fn(buf,count,datatype,dest,tag,comm);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=comm;
+    log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=count;
+    log->sdatatype_size=size;
+    log->tag=tag;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Ibsend(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm, MPI_Request *request){
+    int ret;
+    int type=type_ibsend;
+    double start,end;
+    int idx=-1;
+    trace_log_t* log;
+    MPI_IBSEND fn=TRACE_TYPE_FN[type];
+    int size=0;
+    MPI_Type_size(datatype,&size);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buf,count,datatype,dest,tag,comm,request);
+    start=timer_fn();
+    ret=fn(buf,count,datatype,dest,tag,comm,request);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,0);
+    log->comm=comm;
+    log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
     log->scount=count;
     log->sdatatype_size=size;
     log->tag=tag;
@@ -935,6 +958,7 @@ int MPI_Ssend(const void *buf, int count, MPI_Datatype datatype, int dest,
     new_log(log,type,trace_index,start,end,end);
     log->comm=comm;
     log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
     log->scount=count;
     log->sdatatype_size=size;
     log->tag=tag;
@@ -963,6 +987,66 @@ int MPI_Issend(const void *buf, int count, MPI_Datatype datatype, int dest,
     new_log(log,type,trace_index,start,end,0);
     log->comm=comm;
     log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=count;
+    log->sdatatype_size=size;
+    log->tag=tag;
+    cache_request(request,trace_index);
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Rsend(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm){
+    int ret;
+    int type=type_rsend;
+    double start,end;
+    int idx=-1;
+    trace_log_t* log;
+    MPI_RSEND fn=TRACE_TYPE_FN[type];
+    int size=0;
+    MPI_Type_size(datatype,&size);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buf,count,datatype,dest,tag,comm);
+    start=timer_fn();
+    ret=fn(buf,count,datatype,dest,tag,comm);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=comm;
+    log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=count;
+    log->sdatatype_size=size;
+    log->tag=tag;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Irsend(const void *buf, int count, MPI_Datatype datatype, int dest,
+    int tag, MPI_Comm comm, MPI_Request *request){
+    int ret;
+    int type=type_irsend;
+    double start,end;
+    int idx=-1;
+    trace_log_t* log;
+    MPI_IRSEND fn=TRACE_TYPE_FN[type];
+    int size=0;
+    MPI_Type_size(datatype,&size);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buf,count,datatype,dest,tag,comm,request);
+    start=timer_fn();
+    ret=fn(buf,count,datatype,dest,tag,comm,request);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,0);
+    log->comm=comm;
+    log->peer=dest;
+    log->gpeer=rank2global(log->peer,comm);
     log->scount=count;
     log->sdatatype_size=size;
     log->tag=tag;
@@ -993,12 +1077,14 @@ int MPI_Recv(void *buf, int count, MPI_Datatype datatype,
     new_log(log,type,trace_index,start,end,end);
     if(status!=MPI_STATUS_IGNORE){
         log->peer=status->MPI_SOURCE;
+        log->gpeer=rank2global(log->peer,comm);
         log->tag=status->MPI_TAG;
         MPI_Get_count(status,datatype,&tmp_count);
         log->rcount=tmp_count;
     }else{
         log->rcount=count;
         log->peer=source;
+        log->gpeer=rank2global(log->peer,comm);
         log->tag=tag;
     }
     log->comm=comm;
@@ -1028,6 +1114,7 @@ int MPI_Irecv(void *buf, int count, MPI_Datatype datatype,
     new_log(log,type,trace_index,start,end,0);
     log->rcount=count;
     log->peer=source;
+    log->gpeer=rank2global(log->peer,comm);
     log->tag=tag;
     log->comm=comm;
     log->rdatatype_size=size;
@@ -1056,28 +1143,29 @@ inline static void update_end_ts_of_cached_logs(int count,MPI_Request* array_of_
     }
     #endif
     for(i=0;i<count;i++){
-       ptr=(void*)((MPI_Request*)array_of_requests+i); 
-       r=hash_find_request(ptr,htable);
-       if(!r){
-          #ifdef DEBUG
-          if(tracer_rank==0) printf("request not found? %p of %d\n",ptr,i);
-          #endif
-          continue;
-       }else{
-          idx=r->index%max_trace_num;
-          log=&probe_log[idx];
-          status=((MPI_Status*)array_of_statuses+i);
-          if(status!=MPI_STATUS_IGNORE){
-              if(log->type==type_irecv){
-                  log->peer=status->MPI_SOURCE;
-                  log->tag=status->MPI_TAG;
-                  MPI_Get_count(status,log->private,&tmp_count);
-                  log->rcount=tmp_count;
-              }
-          }
-          log->end_ts=end;
-          recycle_request_node(r,&request_pool);
-       } 
+        ptr=(void*)((MPI_Request*)array_of_requests+i); 
+        r=hash_find_obj((long)ptr,request_htable,request_node_t);
+        if(!r){
+            #ifdef DEBUG
+            if(tracer_rank==0) printf("request not found? %p of %d\n",ptr,i);
+            #endif
+            continue;
+        }else{
+            idx=r->index%max_trace_num;
+            log=&probe_log[idx];
+            status=((MPI_Status*)array_of_statuses+i);
+            if(status!=MPI_STATUS_IGNORE){
+                if(log->type==type_irecv){
+                    log->peer=status->MPI_SOURCE;
+                    log->gpeer=rank2global(log->peer,log->comm);
+                    log->tag=status->MPI_TAG;
+                    MPI_Get_count(status,log->private,&tmp_count);
+                    log->rcount=tmp_count;
+                }
+            }
+            log->end_ts=end;
+            recycle_request_node(r,&request_pool);
+        } 
     }
 }
 
@@ -1273,6 +1361,7 @@ int MPI_Bcast(void *buffer, int count, MPI_Datatype datatype,
     new_log(log,type,trace_index,start,end,end);
     log->comm=comm;
     log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
     if(root==tracer_rank){
         log->scount=count;
         log->sdatatype_size=size;
@@ -1309,6 +1398,7 @@ int MPI_Ibcast(void *buffer, int count, MPI_Datatype datatype,
     new_log(log,type,trace_index,start,end,0);
     log->comm=comm;
     log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
     if(root==tracer_rank){
         log->scount=count;
         log->sdatatype_size=size;
@@ -1347,6 +1437,7 @@ int MPI_Reduce(const void *sendbuf, void *recvbuf, int count,
     new_log(log,type,trace_index,start,end,end);
     log->comm=comm;
     log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
     if(root==tracer_rank){
         log->rcount=count;
         log->rdatatype_size=size;
@@ -1384,6 +1475,7 @@ int MPI_Ireduce(const void *sendbuf, void *recvbuf, int count,
     new_log(log,type,trace_index,start,end,0);
     log->comm=comm;
     log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
     if(root==tracer_rank){
         log->rcount=count;
         log->rdatatype_size=size;
@@ -1497,6 +1589,82 @@ int MPI_Ibarrier(MPI_Comm comm, MPI_Request *request){
     new_log(log,type,trace_index,start,end,0);
     log->comm=comm;
     cache_request(request,trace_index);
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Comm_split(MPI_Comm comm, int color, int key,
+    MPI_Comm *newcomm){
+    MPI_COMM_SPLIT old_fn=NULL;
+    int ret=0;
+    int type=type_comm_split;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    handle = dlopen("libmpi.so", RTLD_LAZY);
+    old_fn= (MPI_COMM_SPLIT)dlsym(handle, "MPI_Comm_split");
+    start=timer_fn();
+    ret=old_fn(comm,color,key,newcomm);
+    end=timer_fn();
+    update_group(*newcomm);
+
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0)) return ret;
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=*newcomm;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Comm_dup(MPI_Comm comm, MPI_Comm *newcomm){
+    MPI_COMM_DUP old_fn=NULL;
+    int ret=0;
+    int type=type_comm_dup;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    handle = dlopen("libmpi.so", RTLD_LAZY);
+    old_fn= (MPI_COMM_DUP)dlsym(handle, "MPI_Comm_dup");
+    start=timer_fn();
+    ret=old_fn(comm,newcomm);
+    end=timer_fn();
+    update_group(*newcomm);
+
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0)) return ret;
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=*newcomm;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+}
+
+int MPI_Comm_create(MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
+    MPI_COMM_CREATE old_fn=NULL;
+    int ret=0;
+    int type=type_comm_create;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    handle = dlopen("libmpi.so", RTLD_LAZY);
+    old_fn= (MPI_COMM_CREATE)dlsym(handle, "MPI_Comm_create");
+    start=timer_fn();
+    ret=old_fn(comm,group,newcomm);
+    end=timer_fn();
+    update_group(*newcomm);
+
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0)) return ret;
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=*newcomm;
     trace_index++;
     MT_UNLOCK()
     return ret;

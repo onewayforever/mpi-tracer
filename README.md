@@ -120,12 +120,22 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 
 ### Trace Log format
 ```
-       ID                  MPI_TYPE   TimeStamp      Call     Elapse       Comm     Tag     SRC     DST    SCount   SBuf_B   SLen_B SBW_Gbps    RCount   RBuf_B   RLen_B RBW_Gbps
-    51925                 MPI_Bcast   53.490958  0.000004   0.000004  0x2bbf780      -1       0      -1       260        8     2080   4.362         0        0        0   0.000
-    51926                  MPI_Send   53.490996  0.000098   0.000098  0x2bbe3d0    2329       0       1         1   526344   526344  42.971         0        0        0   0.000
-    51927                  MPI_Send   53.491095  0.000003   0.000003  0x2bbe3d0    2329       0       1         1        0        0   0.000         0        0        0   0.000
-    51928                  MPI_Send   53.491665  0.000012   0.000012  0x2bbf780    4001       0       1         1     2048     2048   1.374         0        0        0   0.000
-    51929                  MPI_Recv   53.498571  0.000083   0.000083  0x2bbe3d0    2330       1       0         0        0        0   0.000         1   526344   526344  50.750
+       ID                  MPI_TYPE   TimeStamp      Call     Elapse     Comm     Tag     SRC     DST    GSRC    GDST    SCount   SBuf_B   SLen_B SBW_Gbps    RCount   RBuf_B   RLen_B RBW_Gbps
+        7                  MPI_Send    0.385385  0.000001   0.000001  0x2ab27b0    9001      15      14      15      14         3        4       12   0.101         0        0        0   0.000
+        8                  MPI_Recv    0.385386  0.000321   0.000321  0x2ab27b0    9001      14      15      14      15         0        0        0   0.000         3        4       12   0.000
+        9                  MPI_Recv    0.792978  0.089892   0.089892  0x2ab27b0    9001      14      15      14      15         0        0        0   0.000         1        4        4   0.000
+       10                  MPI_Recv    0.928106  0.002097   0.002097  0x2a49c00    2001       2      15      14      15         0        0        0   0.000         1  4327432  4327432  16.510
+       11                  MPI_Recv    0.930989  0.005134   0.005134  0x2a1fb60    1001       0      15       3      15         0        0        0   0.000    122562        8   980496   1.528
+       12                  MPI_Recv    0.938825  0.000056   0.000056  0x2a1fb60    1001       0      15       3      15         0        0        0   0.000     24141        8   193128  27.576
+       13                  MPI_Send    0.938882  0.000348   0.000348  0x2a1fb60    1001      15       1      15       7     27855        8   222840   5.121         0        0        0   0.000
+       14                 MPI_Irecv    0.939233  0.000000   0.000503  0x2a1fb60    1001       0      15       3      15         0        0        0   0.000    118848        8   950784  15.127
+       15                  MPI_Send    0.939234  0.000499   0.000499  0x2a1fb60    1001      15       0      15       3    118848        8   950784  15.243         0        0        0   0.000
+       16                  MPI_Wait    0.939735  0.000001   0.000001      (nil)      -1      -1      -1      -1      -1         1        0        0   0.000         0        0        0   0.000
+       17                 MPI_Irecv    0.939737  0.000000   0.001087  0x2a1fb60    1001       1      15       7      15         0        0        0   0.000    118848        8   950784   6.998
+       18                  MPI_Send    0.939737  0.001087   0.001087  0x2a1fb60    1001      15       1      15       7    118848        8   950784   6.998         0        0        0   0.000
+       19                  MPI_Wait    0.940824  0.000000   0.000000      (nil)      -1      -1      -1      -1      -1         1        0        0   0.000         0        0        0   0.000
+       20                 MPI_Irecv    0.940824  0.000001   0.000709  0x2a1fb60    1001       0      15       3      15         0        0        0   0.000    118848        8   950784  10.727
+
 ```
 
 
@@ -137,8 +147,10 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 | Elapse    | if the function is synchronous, eg MPI_Send, it is equal to Call<br />if the function is asynchronous, eg MPI_Isend, it is the time between the asychronous function being called and its asynchronous request being checked positive by MPI_Test or MPI_Wait |
 | Comm      | the Commnunicator of the function                            |
 | Tag       | the tag of the function                                      |
-| SRC       | the source rank of the function, display -1 if NA            |
-| DST       | the destination rank of the function, display -1 if NA       |
+| SRC       | the source rank of the function commnunicator, display -1 if NA            |
+| DST       | the destination rank of the function commnuicator, display -1 if NA       |
+| GSRC      | the source rank of the world commnuicator, display -1 if NA            |
+| GDST      | the destination rank of the world commnuicator, display -1 if NA       |
 | SCount    | the count of buffers for sending                             |
 | SBuf_B    | the size of a single buffer for sending, in bytes            |
 | SLen_B    | the total size of sending buffer, SLen_B = SCount * SCount, in bytes |
@@ -202,6 +214,14 @@ MPI_Ssend
 
 MPI_Issend
 
+MPI_Bsend
+
+MPI_Ibsend
+
+MPI_Rsend
+
+MPI_Irsend
+
 MPI_Wait
 
 MPI_Waitall
@@ -229,6 +249,12 @@ MPI_Ialltoall
 MPI_Barrier
 
 MPI_Ibarrier
+
+MPI_Comm_split
+
+MPI_Comm_dup
+
+MPI_Comm_create
 
 
 ## Notes

@@ -1,5 +1,5 @@
-#ifndef UTIL_H
-#define UTIL_H
+#ifndef __UTIL_H
+#define __UTIL_H
 
 #include <stdio.h>
 #include <string.h>
@@ -75,36 +75,80 @@ static inline void list_del(struct list_head *entry){
 }
 
 
-struct request_node{
-    void* ptr;
-    int index;
-    struct list_head node;
-};
-
-struct list_head* init_request_pool(struct list_head* request_pool,int n){
-    struct request_node* pool;
-    int i;
-    pool=(struct request_node*)malloc(n*sizeof(struct request_node));
-    for(i=0;i<n;i++){
-        pool[i].ptr=NULL;
-        pool[i].index=-1;
-        list_add(&(pool[i].node),request_pool); 
-    }	 
-    return request_pool;
+inline int cal_hash(long ptr){
+    return (long)ptr%MAX_HASH;
 }
 
-struct request_node* pool_pop(struct list_head* pool_head){
-    struct request_node* obj;
-    if(list_empty(pool_head))
-        return NULL;
-    obj=list_entry(pool_head->next,struct request_node,node);
-    list_del(&(obj->node));    
-    return obj;
-}
+#define DEFINE_INIT_POOL_FN(my_init_pool_func,type,init_cb) \
+                        void my_init_pool_func(struct list_head* pool_head,int n){\
+                        type* pool; \
+                        int i; \
+                        pool=(type*)malloc(n*sizeof(type));   \
+                        for(i=0;i<n;i++){\
+                            init_cb(&pool[i]);\
+                            list_add(&(pool[i].node),pool_head);\
+                        }\
+                    }
 
-void pool_push(struct list_head* pool_head,struct request_node* obj){
-    list_add_tail(&(obj->node),pool_head);
-}
+#define init_pool(pool_head,type,n,init_cb) ({\
+                    type* pool;\
+                    int i;\
+                    pool=(type*)malloc(n*sizeof(type));   \
+                    for(i=0;i<n;i++){\
+                        init_cb(&pool[i]);\
+                        list_add(&(pool[i].node),(pool_head));\
+                    }\
+                })
+
+#define __pool_pop(pool_head,type) ({\
+                type* obj; \
+                obj = list_entry((pool_head)->next,type,node);\
+                list_del(&(obj->node)); \
+                obj; \
+                })
+#define pool_pop(pool_head,type) \
+                (list_empty(pool_head))? NULL:__pool_pop(pool_head,type);
+
+#define pool_push(pool_head,obj) ({list_add_tail(&((obj)->node),(pool_head));})                
+
+#define hash_add_obj(obj,table,type,conflict_fn) ({\
+    int idx=cal_hash((obj)->key);\
+    struct list_head* head=&(table[idx].head);\
+    struct list_head* list;\
+    type* item;\
+    int flag=0;\
+    list_for_each(list,head){\
+        item=list_entry(list,type,node);\
+        if(item->key==(obj)->key){\
+            conflict_fn(obj,item);\
+            flag=1;\
+            break;\
+        }\
+    }\
+    if(!flag)\
+        list_add_tail(&(obj->node),head);\
+})
+
+#define hash_find_obj(k,table,type) ({\
+    int idx=cal_hash(k);\
+    struct list_head* head=&(table[idx].head);\
+    struct list_head* list;\
+    type* obj;\
+    type* ret=NULL;\
+    list_for_each(list,head){\
+         obj=list_entry(list,type,node);\
+         if(obj->key==k){ \
+             ret=obj;\
+             break;\
+         }\
+    }\
+    ret; \
+    } )
+
+#define recycle_request_node(obj,pool_head) ({\
+        list_del(&((obj)->node));\
+        pool_push(pool_head,obj);\
+        })
 
 struct htable_node{
     struct list_head head;
@@ -117,80 +161,45 @@ void init_htable(struct htable_node* table){
     }
 }
 
-void view_htable(struct htable_node* table){
-    int i;
-    struct list_head* list;
-    struct list_head* head;
-    struct request_node* obj;
-    int count=0;
-    if(tracer_rank>0) return;
-    for(i=0;i<MAX_HASH;i++){
-      count=0;
-      head=&(table[i].head);
-      printf("%d\t",i);
-      list_for_each(list,head){
-          count++;
-          obj=list_entry(list,struct request_node,node);
-          printf("%p_%d\t",obj->ptr,obj->index);
-      }
-      printf("%d\n",count);
-    }
+#define view_htable(table,type,display_fn)({\
+    int i;\
+    struct list_head* list;\
+    struct list_head* head;\
+    type* obj;\
+    int count=0;\
+    if(tracer_rank>0) return;\
+    for(i=0;i<MAX_HASH;i++){\
+      count=0;\
+      head=&(table[i].head);\
+      printf("%d\t",i);\
+      list_for_each(list,head){\
+          count++;\
+          obj=list_entry(list,request_node_t,node);\
+          display_fn(obj);\
+      }\
+      printf("%d\n",count);\
+    }\
+})
+
+
+double GHZ=-1;
+
+double tsc_timer(){
+    unsigned long var;
+    unsigned int hi, lo;
+    __asm volatile ("rdtsc" : "=a" (lo), "=d" (hi));
+    var = ((unsigned long)hi << 32) | lo;
+    double time=var/GHZ*1e-9;
+    return (time);
 }
 
-static inline int cal_hash(void* ptr){
-    return (long)ptr%MAX_HASH;
+double gettimeofday_timer()
+{
+    struct timeval             tp;
+    (void) gettimeofday( &tp, NULL );
+
+    return ( (double) tp.tv_sec  + ((double)tp.tv_usec / 1000000.0 )) ;
 }
 
-void hash_add_request(struct request_node* obj,struct htable_node* table){
-    int idx=cal_hash(obj->ptr);
-    struct list_head* head=&(table[idx].head);
-    struct list_head* list;
-    struct request_node* item;
-    list_for_each(list,head){
-         item=list_entry(list,struct request_node,node);
-         if(obj->ptr==item->ptr){
-             if(MPI_program_warning_enable) {
-                 printf("MPITRACER:\tFound the program reused the request before call MPI_Test/MPI_Wait, set MPITRACER_FOUND_ASYNC_BUG_WARNING=0 to disable this Warning\n");
-                 issue_found_flag=1;
-             }
-             return; 
-         }
-    }
-    list_add_tail(&(obj->node),head);
-    #ifdef DEBUG
-    if(tracer_rank==0) printf("push %p at %d\n",obj->ptr,idx);
-    #endif
-}
-
-struct request_node* hash_find_request(void* ptr,struct htable_node* table){
-    int idx=cal_hash(ptr);
-    struct list_head* head=&(table[idx].head);
-    struct list_head* list;
-    struct request_node* obj;
-    #ifdef DEBUG
-    int count=0;
-    #endif
-    list_for_each(list,head){
-         #ifdef DEBUG
-         count++;
-         #endif
-         obj=list_entry(list,struct request_node,node);
-         if(obj->ptr==ptr){
-             #ifdef DEBUG
-             if(tracer_rank==0) printf("catch %p - %d at %d\n",ptr,count,idx);
-             #endif
-             return obj;
-         }
-    }
-    #ifdef DEBUG
-    if(tracer_rank==0) printf("miss %p - %d at %d\n",ptr,count,idx);
-    #endif
-    return NULL;
-}
-
-void recycle_request_node(struct request_node* obj,struct list_head* pool_head){
-    list_del(&(obj->node));
-    pool_push(pool_head,obj);
-}
 
 #endif
