@@ -78,6 +78,7 @@ typedef int (*MPI_COMM_DUP)(MPI_Comm comm, MPI_Comm *newcomm);
 
 typedef int (*MPI_COMM_CREATE)(MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm);
 
+/* must keep same order with TRACE_TYPE_NAME */
 enum TRACE_TYPE{
     type_send,
     type_recv,

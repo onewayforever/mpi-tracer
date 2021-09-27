@@ -75,7 +75,7 @@ static inline void list_del(struct list_head *entry){
 }
 
 
-inline int cal_hash(long ptr){
+int cal_hash(long ptr){
     return (long)ptr%MAX_HASH;
 }
 

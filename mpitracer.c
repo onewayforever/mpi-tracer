@@ -27,6 +27,7 @@ static struct htable_node request_htable[MAX_HASH];
 static struct htable_node group_htable[MAX_HASH];
 
 
+/* must keep same order with TRACE_TYPE */
 static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
     "MPI_Send",
     "MPI_Recv",
@@ -34,6 +35,10 @@ static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
     "MPI_Irecv",
     "MPI_Ssend",
     "MPI_Issend",
+    "MPI_Bsend",
+    "MPI_Ibsend",
+    "MPI_Rsend",
+    "MPI_Irsend",
     "MPI_Wait",
     "MPI_Waitall",
     "MPI_Test",
@@ -269,12 +274,12 @@ void* log_writer_thread(){
     return NULL;
 }
 
-void inline init_request(request_node_t* obj){
+void init_request(request_node_t* obj){
     obj->key = 0;
     obj->index = -1;
 }
 
-void inline init_group(group_node_t* obj){
+void init_group(group_node_t* obj){
     obj->key = 0;
     obj->num = 0;
     obj->map = NULL;
