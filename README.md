@@ -43,7 +43,7 @@ mpirun  --hostfile myhosts -np 64 -npernode 32  -x LD_PRELOAD=/path/to/mpitracer
 
 * Find trace log of each process in /dev/shm/mpi_trace_\<rankid\>.log
 
-* Find summary of the task in /var/log/mpi_trace_task_\<start_timestamp\>.log on host of rank 0（Only log pt2pt traffics）
+* Find summary of the task in /var/tmp/mpi_trace_task_\<start_timestamp\>.log on host of rank 0（Only log pt2pt traffics）
 
 3. Analyze the results
 

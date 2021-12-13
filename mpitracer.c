@@ -202,7 +202,7 @@ void display_info(){
         printf("MPITRACER\tMPITRACER_THRESHOLD=%d, only message larger than this value will be logged\n",log_threshold);
     }
     if(trace_reducer_enable){
-        printf("MPITRACER\tThe summary of all trace will be saved to host of rank 0 in path /var/log/mpi_trace_task_<time>.log\n");
+        printf("MPITRACER\tThe summary of all trace will be saved to host of rank 0 in path /var/tmp/mpi_trace_task_<time>.log\n");
     }else{
         printf("MPITRACER\tDo not produce summary of all trace\n");
     }
@@ -666,7 +666,7 @@ void record_statistic(pair_log_t* pairs,int count,char* table){
     pair_log_t* pair=NULL;
     tm_start = localtime(&app_start_time);
     strftime(starttime,16,"%m%d%H%M%S",tm_start);
-    sprintf(reducer_log_file,"/var/log/mpi_trace_task_%s.log",starttime);
+    sprintf(reducer_log_file,"/var/tmp/mpi_trace_task_%s.log",starttime);
     MPI_Get_processor_name(root_hostname,&len);
     fp=fopen(reducer_log_file,"w");
     fprintf(fp,"%16s\t%7s\t%16s\t%7s\t%11s\t%11s\t%16s\t%16s\t%8s\t%8s\t%8s\t%7s\t%7s\t%7s\t%7s\n","SHost","SRC","DHost","DST","Start","Elapse","TotalCount","TotalBytes","Max_msg","Min_msg","Avg_msg","Max_bw","Min_bw","Avg_bw","Bw_mean");
