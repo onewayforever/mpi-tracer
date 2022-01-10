@@ -89,25 +89,29 @@ MPI tracer use environment variables to pass parameters. The available options a
 
   Log file prefix, default: mpi_trace, and the log file will be record as mpi_trace_\<rankid\>.log
 
+* MPITRACER_LOG_TS_ABSOLUTE
+   
+  The start timestamp of traces are logged in form of the relative time to the start of the rank, you can set MPITRACER_LOG_TS_ABSOLUTE=1 to log the abosulte time to align the timestamp among different ranks 
+
 * MPITRACER_DELAY_WRITER
 
-  MPI trace will create a writer thread to write the logs to the file on each rank process, you can set MPITRACER_DELAY_WRITER=1 to disable writer thread and don't  flush the logs to file during the application runtime util MPI_Finalize stage
+  MPI-tracer will create a writer thread to write the logs to the file on each rank process, you can set MPITRACER_DELAY_WRITER=1 to disable writer thread and don't  flush the logs to file during the application runtime util MPI_Finalize stage
 
 * MPITRACER_THRESHOLD
 
-  MPI trace will log only the MPI behavior with message size larger than MPITRACER_THRESHOLD, default: 0 (log everything)
+  MPI-tracer will log only the MPI behavior with message size larger than MPITRACER_THRESHOLD, default: 0 (log everything)
 
 * MPITRACER_DISABLE_REDUCER
 
-   MPI trace will summary all traces caught in each host and save to a single host, set to 0 to disable it, default: 1 (enable)
+   MPI-tracer will summary all traces caught in each host and save to a single host, set to 0 to disable it, default: 1 (enable)
 
 * MPITRACER_FOUND_ASYNC_BUG_WARNING
 
-   MPI trace can be used to find program issues in using  non-blocking functions,  eg. MPI_Request is not used in pairs of MPI_Ixxxx and MPI_Wait/Test, set to 0 to disable it, default: 1 (enable)
+   MPI-tracer can be used to find program issues in using  non-blocking functions,  eg. MPI_Request is not used in pairs of MPI_Ixxxx and MPI_Wait/Test, set to 0 to disable it, default: 1 (enable)
 
 * MPITRACER_IGNORE
 
-   MPI trace will ignore the designated functions , separate by comma, eg. MPITRACER_IGNORE=MPI_Bcast,MPI_Barrier
+   MPI-tracer will ignore the designated functions , separate by comma, eg. MPITRACER_IGNORE=MPI_Bcast,MPI_Barrier
 
 Example:
 
@@ -142,7 +146,7 @@ mpirun  --hostfile myhosts -np 64 -npernode 32 -x MPITRACER_TSC_GHZ=2.5 -x MPITR
 | Column    | Descrpition                                                  |
 | --------- | ------------------------------------------------------------ |
 | MPI_TYPE  | the MPI_xxx functions to hook and log, available functions are listed in the next section |
-| TimeStamp | seconds since MPI_Init is called                             |
+| TimeStamp | seconds since MPI_Init is called by default, or absolute timestamp if MPITRACER_LOG_TS_ABSOLUTE is set to 1 |
 | Call      | the running time of the called function                      |
 | Elapse    | if the function is synchronous, eg MPI_Send, it is equal to Call<br />if the function is asynchronous, eg MPI_Isend, it is the time between the asychronous function being called and its asynchronous request being checked positive by MPI_Test or MPI_Wait |
 | Comm      | the Commnunicator of the function                            |

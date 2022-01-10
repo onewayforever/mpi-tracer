@@ -84,6 +84,7 @@ static double rank_start_ts=0;
 static int writer_enable=1;
 static int trace_reducer_enable=1;
 int MPI_program_warning_enable=1;
+int log_ts_absolute=0;
 static int log_threshold=0;
 static int total_ranks=0;
 pair_log_t* send_pairs=NULL;
@@ -386,6 +387,13 @@ void init_mpitracer(){
         }
     }
 
+    env=getenv("MPITRACER_LOG_TS_ABSOLUTE");
+    if(env){
+        if(atoi(env)==1){
+            log_ts_absolute=1;
+        }
+    }
+
     probe_log=(trace_log_t*)malloc(sizeof(trace_log_t)*max_trace_num);
     for(i=0;i<max_trace_num;i++){
         probe_log[i].type=-1;
@@ -544,6 +552,7 @@ inline void print_log(FILE* fp,trace_log_t* log){
     int scount=log->scount;
     int rcount=log->rcount;
     int pair_type=0;
+    double start_ts_print=log->start_ts;
     pair_log_t* pair=NULL;
     switch(log->type){
         case type_send:
@@ -649,7 +658,10 @@ inline void print_log(FILE* fp,trace_log_t* log){
         if(pair_type==0) update_pair_data(pair,slen,sgbps,log->start_ts,log->end_ts); 
         if(pair_type==1) update_pair_data(pair,rlen,rgbps,log->start_ts,log->end_ts); 
     }
-    fprintf( fp, "%9ld %25s %11.6lf %9.6lf %10.6lf %10p %7d %7d %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf %s\n", log->id,TRACE_TYPE_NAME[log->type],(log->start_ts-rank_start_ts) ,(log->return_ts-log->start_ts),elapse,comm,tag,src,dst,gsrc,gdst,scount,ssize,slen,sgbps,rcount,rsize,rlen,rgbps,debug_info);
+    if(!log_ts_absolute){
+        start_ts_print = log->start_ts - rank_start_ts;
+    }
+    fprintf( fp, "%9ld %25s %17.6lf %9.6lf %10.6lf %10p %7d %7d %7d %7d %7d %9d %8d %8d %7.3lf %9d %8d %8d %7.3lf %s\n", log->id,TRACE_TYPE_NAME[log->type],start_ts_print,(log->return_ts-log->start_ts),elapse,comm,tag,src,dst,gsrc,gdst,scount,ssize,slen,sgbps,rcount,rsize,rlen,rgbps,debug_info);
 }
 
 
@@ -761,7 +773,7 @@ int MPI_Finalize(){
     }else{
         sprintf(log_file,"%s/%s_%d.log",log_dir,log_prefix,tracer_rank);
         fp=fopen(log_file,"w");
-        fprintf( fp, "%9s %25s %11s %9s %10s %10s %7s %7s %7s %7s %7s %9s %8s %8s %7s %9s %8s %8s %7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","GSRC","GDST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
+        fprintf( fp, "%9s\t%25s\t%17s\t%9s\t%10s\t%10s\t%7s\t%7s\t%7s\t%7s\t%7s\t%9s\t%8s\t%8s\t%7s\t%9s\t%8s\t%8s\t%7s\n","ID","MPI_TYPE","TimeStamp","Call","Elapse","Comm","Tag","SRC","DST","GSRC","GDST","SCount","SBuf_B","SLen_B","SBW_Gbps","RCount","RBuf_B","RLen_B","RBW_Gbps");
         offset = trace_index%max_trace_num;
         for(i=offset;i<max_trace_num;i++){
             print_log(fp,&probe_log[i]);
