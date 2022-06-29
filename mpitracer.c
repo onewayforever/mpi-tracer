@@ -126,6 +126,7 @@ void Trace_all_fn(){
 static MPI_Comm pMPI_comm_world=NULL;
 static MPI_Datatype myInt=NULL;
 static MPI_Datatype myChar=NULL;
+static MPI_Comm pompi_mpi_comm_null=NULL;
 
 
 static int inline rank2global(int rank,MPI_Comm comm){
@@ -154,7 +155,7 @@ void update_group(MPI_Comm comm){
     int* map=NULL;
     int* tmp=NULL;
     int i;
-    if(comm==MPI_COMM_NULL)
+    if(comm==pompi_mpi_comm_null)
         return;
     g=hash_find_obj((long)comm,group_htable,group_node_t);
     if(g){
@@ -467,6 +468,7 @@ void attach_tracer(){
         pMPI_comm_world = (MPI_Comm)ptr;
         myChar = dlsym(RTLD_LOCAL, "ompi_mpi_char");
         myInt = dlsym(RTLD_LOCAL, "ompi_mpi_int");
+        pompi_mpi_comm_null = dlsym(RTLD_LOCAL, "ompi_mpi_comm_null");
         break;
     case INTELMPI:
         printf("MPITRACER\tUse intelmpi!\n");
