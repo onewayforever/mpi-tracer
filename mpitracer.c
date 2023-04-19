@@ -559,7 +559,7 @@ inline void print_log(FILE* fp,trace_log_t* log){
     int pair_type=0;
     double start_ts_print=log->start_ts;
     pair_log_t* pair=NULL;
-    switch(log->type){//type_gather?
+    switch(log->type){
         case type_send:
         case type_isend:
         case type_ssend:
@@ -1410,7 +1410,6 @@ int MPI_Ibcast(void *buffer, int count, MPI_Datatype datatype,
     MPI_IBCAST fn=TRACE_TYPE_FN[type];
     int size=0;
     MPI_Type_size(datatype,&size);
-    //问题：这个判断的目的是什么？
     if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&log_threshold>count*size)) return fn(buffer,count,datatype,root,comm,request);
     start=timer_fn();
     ret=fn(buffer,count,datatype,root,comm,request);
