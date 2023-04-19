@@ -260,6 +260,7 @@ MPI_Comm_dup
 
 MPI_Comm_create
 
+MPI_Gather
 
 ## Notes
 
