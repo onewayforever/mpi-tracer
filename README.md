@@ -262,6 +262,10 @@ MPI_Comm_create
 
 MPI_Gather
 
+MPI_Allgather
+
+MPI_Scatter
+
 ## Notes
 
 * Linux Only
