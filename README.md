@@ -262,7 +262,11 @@ MPI_Comm_create
 
 MPI_Gather
 
+MPI_Igather
+
 MPI_Allgather
+
+MPI_Iallgather
 
 MPI_Scatter
 
