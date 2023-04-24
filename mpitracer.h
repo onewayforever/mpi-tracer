@@ -78,6 +78,24 @@ typedef int (*MPI_COMM_DUP)(MPI_Comm comm, MPI_Comm *newcomm);
 
 typedef int (*MPI_COMM_CREATE)(MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm);
 
+typedef int(*MPI_GATHER)(const void *sendbuf, int sendcount,
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, int root, MPI_Comm comm);
+typedef int(*MPI_IGATHER)(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+                void *recvbuf, int recvcount, MPI_Datatype recvtype,
+                int root, MPI_Comm comm, MPI_Request *request);
+typedef int(*MPI_ALLGATHER)(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, MPI_Comm comm);
+typedef int(*MPI_IALLGATHER)(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+                   void *recvbuf, int recvcount, MPI_Datatype recvtype,
+                   MPI_Comm comm,  MPI_Request *request);
+typedef int(*MPI_SCATTER)(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, int root, MPI_Comm comm);
+typedef int(*MPI_ISCATTER)(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, int root, MPI_Comm comm, MPI_Request *request);
 /* must keep same order with TRACE_TYPE_NAME */
 enum TRACE_TYPE{
     type_send,
@@ -107,6 +125,12 @@ enum TRACE_TYPE{
     type_comm_split,
     type_comm_dup,
     type_comm_create,
+    type_gather,
+    type_igather,
+    type_allgather,
+    type_iallgather,
+    type_scatter,
+    type_iscatter,
     type_COUNT
 }; 
 #define MAX_TRACE_NUM 100000

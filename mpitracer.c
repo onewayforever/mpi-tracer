@@ -56,6 +56,12 @@ static char TRACE_TYPE_NAME[MAX_TRACE_FN][25]={
     "MPI_Comm_split",
     "MPI_Comm_dup",
     "MPI_Comm_create",
+    "MPI_Gather",
+    "MPI_Igather",
+    "MPI_Allgather",
+    "MPI_Iallgather",
+    "MPI_Scatter",
+    "MPI_Iscatter"
 };
 
 #define OPENMPI 1
@@ -1688,3 +1694,201 @@ int MPI_Comm_create(MPI_Comm comm, MPI_Group group, MPI_Comm *newcomm){
     MT_UNLOCK()
     return ret;
 }
+
+int MPI_Gather(const void *sendbuf, int sendcount,
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype,int root, MPI_Comm comm){
+    int ret;
+    int type=type_gather;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    MPI_GATHER fn=TRACE_TYPE_FN[type];
+    int ssize=0;
+    int rsize=0;
+    MPI_Type_size(sendtype,&ssize);
+    MPI_Type_size(recvtype,&rsize);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&(log_threshold>recvcount*rsize||log_threshold>sendcount*ssize))) return ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm);
+    start=timer_fn();
+    ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=comm;
+    log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=sendcount;
+    log->sdatatype_size=ssize;
+    log->rcount=recvcount;
+    log->rdatatype_size=rsize;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+    }
+
+int MPI_Igather(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, int root, MPI_Comm comm, MPI_Request *request){
+    int ret;
+    int type=type_igather;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    MPI_IGATHER fn=TRACE_TYPE_FN[type];
+    int ssize=0;
+    int rsize=0;
+    MPI_Type_size(sendtype,&ssize);
+    MPI_Type_size(recvtype,&rsize);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&(log_threshold>recvcount*rsize||log_threshold>sendcount*ssize))) return ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm,request);
+    start=timer_fn();
+    ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm,request);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,0);
+    log->comm=comm;
+    log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=sendcount;
+    log->sdatatype_size=ssize;
+    log->rcount=recvcount;
+    log->rdatatype_size=rsize;
+    cache_request(request,trace_index);
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+    }
+int MPI_Allgather(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, MPI_Comm comm){
+    int ret;
+    int type=type_allgather;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    MPI_ALLGATHER fn=TRACE_TYPE_FN[type];
+    int ssize=0;
+    int rsize=0;
+    MPI_Type_size(sendtype,&ssize);
+    MPI_Type_size(recvtype,&rsize);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&(log_threshold>recvcount*rsize||log_threshold>sendcount*ssize))) return ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,comm);
+    start=timer_fn();
+    ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,comm);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=comm;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=sendcount;
+    log->sdatatype_size=ssize;
+    log->rcount=recvcount;
+    log->rdatatype_size=rsize;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+    }
+
+int MPI_Iallgather(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, MPI_Comm comm,  MPI_Request *request){
+    int ret;
+    int type=type_iallgather;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    MPI_IALLGATHER fn=TRACE_TYPE_FN[type];
+    int ssize=0;
+    int rsize=0;
+    MPI_Type_size(sendtype,&ssize);
+    MPI_Type_size(recvtype,&rsize);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&(log_threshold>recvcount*rsize||log_threshold>sendcount*ssize))) return ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,comm,request);
+    start=timer_fn();
+    ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,comm,request);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,0);
+    log->comm=comm;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=sendcount;
+    log->sdatatype_size=ssize;
+    log->rcount=recvcount;
+    log->rdatatype_size=rsize;
+    cache_request(request,trace_index);
+    trace_index++;
+    MT_UNLOCK()
+    return ret;
+    }
+
+int MPI_Scatter(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, int root, MPI_Comm comm){
+    int ret;
+    int type=type_scatter;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    MPI_SCATTER fn=TRACE_TYPE_FN[type];
+    int ssize=0;
+    int rsize=0;
+    MPI_Type_size(sendtype,&ssize);
+    MPI_Type_size(recvtype,&rsize);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&(log_threshold>recvcount*rsize||log_threshold>sendcount*ssize))) return ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm);
+    start=timer_fn();
+    ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,end);
+    log->comm=comm;
+    log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=sendcount;
+    log->sdatatype_size=ssize;
+    log->rcount=recvcount;
+    log->rdatatype_size=rsize;
+    trace_index++;
+    MT_UNLOCK()
+    return ret;      
+    }
+
+int MPI_Iscatter(const void *sendbuf, int sendcount, 
+    MPI_Datatype sendtype, void *recvbuf, int recvcount, 
+    MPI_Datatype recvtype, int root, MPI_Comm comm, MPI_Request *request){
+    int ret;
+    int type=type_iscatter;
+    int idx=-1;
+    double start,end;
+    trace_log_t* log;
+    MPI_ISCATTER fn=TRACE_TYPE_FN[type];
+    int ssize=0;
+    int rsize=0;
+    MPI_Type_size(sendtype,&ssize);
+    MPI_Type_size(recvtype,&rsize);
+    if((TRACE_IGNORE_LIST[type])||(log_threshold>0&&(log_threshold>recvcount*rsize||log_threshold>sendcount*ssize))) return ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm,request);
+    start=timer_fn();
+    ret=fn(sendbuf,sendcount,sendtype,recvbuf,recvcount,recvtype,root,comm,request);
+    end=timer_fn();
+    MT_LOCK()
+    idx=trace_index%max_trace_num;
+    log=&probe_log[idx];
+    new_log(log,type,trace_index,start,end,0);
+    log->comm=comm;
+    log->peer=root;
+    log->gpeer=rank2global(log->peer,comm);
+    log->scount=sendcount;
+    log->sdatatype_size=ssize;
+    log->rcount=recvcount;
+    log->rdatatype_size=rsize;
+    cache_request(request,trace_index);
+    trace_index++;
+    MT_UNLOCK()
+    return ret;   
+    }
